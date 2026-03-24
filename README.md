@@ -28,9 +28,10 @@ The Next.js frontend now reads live data from the Django API.
 ### Frontend env
 Set this in a root `.env.local` for local development. In production, the frontend falls back to the Render backend URL if the variable is not set.
 ```bash
+# Local development
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api
-```
-```bash
+
+# Vercel production
 NEXT_PUBLIC_API_BASE_URL=https://bunge-mkononi.onrender.com/api
 ```
 
