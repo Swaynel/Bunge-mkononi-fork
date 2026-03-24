@@ -269,7 +269,7 @@ export default function ParticipationHub({
           <div className="space-y-4">
             <div className="p-4 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition">
               <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">Global USSD Code</p>
-              <p className="text-2xl font-mono text-emerald-400 mt-1 font-bold">*384*100#</p>
+              <p className="text-2xl font-mono text-emerald-400 mt-1 font-bold">*384*16250#</p>
             </div>
 
             <div className="p-4 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition">

@@ -150,7 +150,7 @@ export default function Home() {
             </div>
             <div>
               <p className="text-xs font-bold uppercase opacity-80">Offline Access</p>
-              <p className="text-xl font-mono font-bold">*384*100#</p>
+              <p className="text-xl font-mono font-bold">*384*16250#</p>
             </div>
           </div>
         </header>
