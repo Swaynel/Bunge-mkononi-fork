@@ -13,7 +13,10 @@ import {
   SystemLog,
 } from '@/types';
 
-const DEFAULT_API_BASE_URL = 'http://127.0.0.1:8000/api';
+const DEFAULT_API_BASE_URL =
+  process.env.NODE_ENV === 'production'
+    ? 'https://bunge-mkononi.onrender.com/api'
+    : 'http://127.0.0.1:8000/api';
 const ADMIN_BASIC_AUTH_STORAGE_KEY = 'bunge_admin_basic_auth';
 const ADMIN_USERNAME_STORAGE_KEY = 'bunge_admin_username';
 

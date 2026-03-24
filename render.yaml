@@ -23,5 +23,7 @@ services:
         generateValue: true
       - key: DJANGO_DEBUG
         value: "0"
+      - key: DJANGO_FRONTEND_ORIGIN
+        value: https://bunge-mkononi.vercel.app
       - key: DJANGO_BOOTSTRAP_ON_STARTUP
         value: "1"

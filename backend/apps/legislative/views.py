@@ -49,8 +49,8 @@ class IsStaffOrReadOnly(permissions.BasePermission):
 
 def _serialize_subscription(subscription: Subscription) -> dict:
     return {
-        "id": subscription.id,
-        "billId": subscription.bill_id,
+        "id": subscription.pk,
+        "billId": subscription.bill.pk if subscription.bill else None,
         "billTitle": subscription.bill.title if subscription.bill else None,
         "phoneNumber": subscription.phone_number,
         "channel": subscription.channel,
@@ -61,7 +61,7 @@ def _serialize_subscription(subscription: Subscription) -> dict:
 def _serialize_sms_inbound_log(log: SystemLog) -> dict:
     metadata = log.metadata if isinstance(log.metadata, dict) else {}
     return {
-        "id": log.id,
+        "id": log.pk,
         "phoneNumber": metadata.get("phoneNumber") or "",
         "rawPhoneNumber": metadata.get("rawPhoneNumber") or "",
         "message": metadata.get("message") or "",
@@ -79,7 +79,7 @@ def _serialize_sms_delivery_log(log: SystemLog) -> dict:
     metadata = log.metadata if isinstance(log.metadata, dict) else {}
     status = str(metadata.get("status") or metadata.get("normalizedStatus") or "unknown")
     return {
-        "id": log.id,
+        "id": log.pk,
         "messageId": metadata.get("messageId") or "",
         "phoneNumber": metadata.get("phoneNumber") or "",
         "rawPhoneNumber": metadata.get("rawPhoneNumber") or "",
@@ -226,7 +226,7 @@ class BillViewSet(viewsets.ModelViewSet):
                 "billId": bill.id,
                 "subscriberCount": bill.subscriber_count,
                 "message": message,
-                "logId": log.id,
+                "logId": log.pk,
             },
             status=status.HTTP_200_OK,
         )

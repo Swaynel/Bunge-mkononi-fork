@@ -105,7 +105,7 @@ class Petition(models.Model):
         ordering = ["-signature_count", "title"]
 
     def __str__(self) -> str:
-        return f"{self.title} ({self.bill_id})"
+        return f"{self.title} ({self.bill.pk})"
 
 
 class Representative(models.Model):
@@ -138,7 +138,7 @@ class RepresentativeVote(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.representative_id} -> {self.bill_id}: {self.vote}"
+        return f"{self.representative.pk} -> {self.bill.pk}: {self.vote}"
 
 
 class CountyStat(models.Model):
@@ -167,7 +167,7 @@ class PollResponse(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return f"{self.bill_id}: {self.choice}"
+        return f"{self.bill.pk}: {self.choice}"
 
 
 class Subscription(models.Model):
@@ -180,7 +180,8 @@ class Subscription(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return f"{self.phone_number} -> {self.bill_id or 'all-bills'}"
+        bill_identifier = self.bill.pk if self.bill else "all-bills"
+        return f"{self.phone_number} -> {bill_identifier}"
 
 
 class SystemLog(models.Model):

@@ -26,9 +26,12 @@ The backend also includes a Render Blueprint at `render.yaml` so you can provisi
 The Next.js frontend now reads live data from the Django API.
 
 ### Frontend env
-Set this in a root `.env.local` if your backend is not running on the default port:
+Set this in a root `.env.local` for local development. In production, the frontend falls back to the Render backend URL if the variable is not set.
 ```bash
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api
+```
+```bash
+NEXT_PUBLIC_API_BASE_URL=https://bunge-mkononi.onrender.com/api
 ```
 
 ### Live endpoints used by the UI
@@ -61,7 +64,7 @@ If the scraper returns no bills on your first run, the site will simply stay emp
 1. Push the repo to GitHub, then create a new Render Blueprint from `render.yaml`.
 2. Render will create the backend service plus a Postgres database.
 3. The app bootstraps migrations and static file collection on Render startup, so even a manually created service with the default Gunicorn start command can come up cleanly.
-4. Add your frontend domain later by setting `DJANGO_CORS_ALLOWED_ORIGINS` and `DJANGO_CSRF_TRUSTED_ORIGINS` on the Render service if the UI is hosted elsewhere.
+4. The backend is already configured to trust `https://bunge-mkononi.vercel.app` for CORS and CSRF, but you can override `DJANGO_FRONTEND_ORIGIN` if the UI ever moves.
 
 Render's free Postgres plan expires after 30 days, so upgrade the database if you want to keep data long term.
 

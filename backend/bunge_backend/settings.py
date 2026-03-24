@@ -108,6 +108,8 @@ render_hostname = os.getenv("RENDER_EXTERNAL_HOSTNAME")
 if render_hostname:
     _append_unique(ALLOWED_HOSTS, render_hostname)
 
+frontend_origin = _env("DJANGO_FRONTEND_ORIGIN", "https://bunge-mkononi.vercel.app")
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -177,6 +179,9 @@ STORAGES = {
 }
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
+if not DEBUG:
+    SESSION_COOKIE_SAMESITE = "None"
+    CSRF_COOKIE_SAMESITE = "None"
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if _is_render else None
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
@@ -188,6 +193,8 @@ AFRICASTALKING_SMS_TIMEOUT = int(_env("AFRICASTALKING_SMS_TIMEOUT", "20"))
 
 CORS_ALLOWED_ORIGINS = _csv_env("DJANGO_CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000")
 CORS_ALLOW_CREDENTIALS = True
+if frontend_origin:
+    _append_unique(CORS_ALLOWED_ORIGINS, frontend_origin)
 CSRF_TRUSTED_ORIGINS = _csv_env("DJANGO_CSRF_TRUSTED_ORIGINS", "")
 if not CSRF_TRUSTED_ORIGINS:
     CSRF_TRUSTED_ORIGINS = list(CORS_ALLOWED_ORIGINS)
@@ -195,6 +202,8 @@ if _is_render:
     _append_unique(CSRF_TRUSTED_ORIGINS, "https://*.onrender.com")
 if render_hostname:
     _append_unique(CSRF_TRUSTED_ORIGINS, f"https://{render_hostname}")
+if frontend_origin:
+    _append_unique(CSRF_TRUSTED_ORIGINS, frontend_origin)
 
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
