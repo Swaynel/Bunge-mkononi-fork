@@ -81,6 +81,7 @@ SMS commands:
 - `STATUS <bill id or bill title>` returns the latest bill status without creating a subscription.
 - Broadcast SMS now uses the bill's current status by default instead of a generic placeholder.
 - Subscribers are also pinged automatically whenever a bill status changes, whether the change comes from the admin screen or the scraper.
+- USSD subscriptions also trigger a confirmation SMS so the user gets a message after opting in.
 
 ### Africa's Talking webhooks
 Configure these callback URLs in Africa's Talking:
@@ -93,6 +94,8 @@ USSD menu flow:
 - `2` to open the featured bill details menu
 - `3` to subscribe directly to a bill
 - `4` to vote on the featured bill
+- `8` to move to the next page of bills
+- `9` to go back to the previous page of bills
 - `5` for help
 - `0` to go back or exit the session
 - Bill detail menus include:
@@ -100,6 +103,7 @@ USSD menu flow:
   - `2` to vote
   - `3` to read the summary
   - `0` to return to the main menu
+  - Long bill titles are shortened automatically to fit USSD screens
 
 The admin metrics page for these webhooks lives at `/admin/metrics`.
 Inbound SMS subscribers can text `TRACK <bill id or bill title>` to the shortcode you configure on the Africa's Talking side.

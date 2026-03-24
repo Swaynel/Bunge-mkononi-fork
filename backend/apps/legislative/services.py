@@ -7,7 +7,7 @@ from django.db.models import F
 from django.utils.text import slugify
 
 from .africastalking import AfricaTalkingConfigurationError, AfricaTalkingError, send_sms, summarize_sms_response
-from .models import Bill, LogEventType, Petition, PollChoice, PollResponse, Subscription, SystemLog
+from .models import Bill, LogEventType, Petition, PollChoice, PollResponse, Subscription, SubscriptionChannel, SystemLog
 
 
 SMS_SUBSCRIPTION_KEYWORDS = {"SUBSCRIBE", "TRACK", "FOLLOW", "JOIN"}
@@ -142,6 +142,50 @@ def _format_bill_sms_summary(bill: Bill) -> str:
 
 def _build_status_change_sms_message(bill: Bill, previous_status: str, new_status: str) -> str:
     return f"Update for {bill.title}: {previous_status} -> {new_status}. Reply STATUS {bill.id} for details."
+
+
+def _build_subscription_confirmation_sms(bill: Bill, created: bool) -> str:
+    summary = _format_bill_sms_summary(bill)
+    lead = f"You are now subscribed to {bill.title}." if created else f"You are already subscribed to {bill.title}."
+    return (
+        f"{lead}\n"
+        f"Bill ID: {bill.id}\n"
+        f"{summary}\n"
+        f"Reply STATUS {bill.id} for the latest update."
+    )
+
+
+def _queue_subscription_confirmation_sms(subscription: Subscription, bill: Bill | None, created: bool, channel: str) -> None:
+    if bill is None:
+        return
+
+    if str(channel).strip().lower() != SubscriptionChannel.USSD:
+        return
+
+    phone_number = subscription.phone_number.strip()
+    if not phone_number:
+        return
+
+    message = _build_subscription_confirmation_sms(bill, created)
+
+    def _send_confirmation() -> None:
+        try:
+            send_sms(message, [phone_number], enqueue=True)
+        except (AfricaTalkingConfigurationError, AfricaTalkingError) as exc:
+            record_system_log(
+                LogEventType.SYSTEM,
+                f"Subscription confirmation SMS failed for {bill.title}: {exc}",
+                {
+                    "billId": bill.id,
+                    "phoneNumber": phone_number,
+                    "channel": channel,
+                    "created": created,
+                    "error": str(exc),
+                    "quantity": 0,
+                },
+            )
+
+    transaction.on_commit(_send_confirmation)
 
 
 def parse_sms_subscription_command(message: str) -> tuple[str, str]:
@@ -506,6 +550,7 @@ def create_subscription(bill: Bill | None, phone_number: str, channel: str) -> t
                 "quantity": 1 if created else 0,
             },
         )
+        _queue_subscription_confirmation_sms(subscription, bill, created, channel)
         return subscription, created
 
 

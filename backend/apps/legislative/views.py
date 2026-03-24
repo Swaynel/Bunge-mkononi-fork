@@ -30,7 +30,6 @@ from .services import (
     broadcast_bill_update,
     create_poll_response,
     create_subscription,
-    normalize_kenyan_phone_number,
     record_sms_delivery_report,
     record_sms_inbound_message,
     record_system_log,
@@ -38,6 +37,9 @@ from .services import (
     update_bill_status,
 )
 from .africastalking import AfricaTalkingConfigurationError, AfricaTalkingError
+
+USSD_BILL_PAGE_SIZE = 4
+USSD_TITLE_LIMIT = 24
 
 
 class IsStaffOrReadOnly(permissions.BasePermission):
@@ -105,19 +107,11 @@ def _get_featured_bill() -> Bill | None:
     return Bill.objects.filter(is_hot=True).select_related("petition").first() or Bill.objects.select_related("petition").first()
 
 
-def _get_active_bills(limit: int = 5) -> list[Bill]:
-    return list(Bill.objects.exclude(status=BillStatus.PRESIDENTIAL_ASSENT).select_related("petition")[:limit])
-
-
-def _pick_bill_from_choice(bills: list[Bill], choice: str) -> Bill | None:
-    if not choice.isdigit():
-        return None
-
-    index = int(choice) - 1
-    if index < 0 or index >= len(bills):
-        return None
-
-    return bills[index]
+def _get_active_bills(limit: int | None = None) -> list[Bill]:
+    queryset = Bill.objects.exclude(status=BillStatus.PRESIDENTIAL_ASSENT).select_related("petition")
+    if limit is not None:
+        queryset = queryset[:limit]
+    return list(queryset)
 
 
 def _format_ussd_main_menu() -> str:
@@ -132,13 +126,27 @@ def _format_ussd_main_menu() -> str:
     )
 
 
+def _shorten_ussd_text(value: str, limit: int = USSD_TITLE_LIMIT) -> str:
+    text = " ".join((value or "").split()).strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3].rstrip()}..."
+
+
+def _paginate_items(items: list[Bill], page: int, page_size: int) -> tuple[list[Bill], int, int]:
+    total_pages = max((len(items) + page_size - 1) // page_size, 1)
+    current_page = max(1, min(page, total_pages))
+    start = (current_page - 1) * page_size
+    return items[start : start + page_size], current_page, total_pages
+
+
 def _format_bill_detail_menu(bill: Bill) -> str:
     petition = getattr(bill, "petition", None)
     signatures = petition.signature_count if petition else 0
     sponsor = bill.sponsor or "N/A"
     introduced = bill.date_introduced.strftime("%d %b %Y")
     return (
-        f"CON {bill.title}\n"
+        f"CON {_shorten_ussd_text(bill.title)}\n"
         f"Bill ID: {bill.id}\n"
         f"Category: {bill.category}\n"
         f"Status: {bill.status}\n"
@@ -180,7 +188,7 @@ def _format_bill_summary(bill: Bill) -> str:
 
 def _format_vote_menu(bill: Bill) -> str:
     return (
-        f"CON Vote on {bill.title}\n"
+        f"CON Vote on {_shorten_ussd_text(bill.title)}\n"
         f"Bill ID: {bill.id}\n"
         "1. Support\n"
         "2. Oppose\n"
@@ -189,12 +197,57 @@ def _format_vote_menu(bill: Bill) -> str:
     )
 
 
-def _format_bill_list_menu(title: str, bills: list[Bill], prompt: str) -> str:
-    if not bills:
+def _format_bill_list_menu(title: str, bills: list[Bill], prompt: str, page: int = 1) -> str:
+    page_bills, current_page, total_pages = _paginate_items(bills, page, USSD_BILL_PAGE_SIZE)
+    if not page_bills:
         return "END No active bills found right now."
 
-    lines = [f"{index}. {bill.id} - {bill.title}" for index, bill in enumerate(bills, start=1)]
-    return "CON " + title + "\n" + "\n".join(lines) + f"\n{prompt}\n0. Main menu"
+    lines = [
+        f"{index}. {bill.id} - {_shorten_ussd_text(bill.title)}"
+        for index, bill in enumerate(page_bills, start=1)
+    ]
+    navigation: list[str] = []
+    if current_page > 1:
+        navigation.append("9. Back")
+    if current_page < total_pages:
+        navigation.append("8. More")
+    navigation.append("0. Main menu")
+    page_label = f" ({current_page}/{total_pages})" if total_pages > 1 else ""
+    return "CON " + title + page_label + "\n" + "\n".join(lines) + f"\n{prompt}\n" + "\n".join(navigation)
+
+
+def _resolve_bill_list_selection(parts: list[str], bills: list[Bill]) -> tuple[str, int, Bill | None, list[str]]:
+    page = 1
+    selection_token: str | None = None
+    selection_position = -1
+
+    for position, token in enumerate(parts[1:], start=1):
+        if token == "0":
+            return ("main_menu", page, None, [])
+        if selection_token is None and token == "8":
+            page += 1
+            continue
+        if selection_token is None and token == "9":
+            if page == 1:
+                return ("main_menu", page, None, [])
+            page -= 1
+            continue
+        selection_token = token
+        selection_position = position
+        break
+
+    page_bills, current_page, _ = _paginate_items(bills, page, USSD_BILL_PAGE_SIZE)
+    if selection_token is None:
+        return ("menu", current_page, None, [])
+
+    if not selection_token.isdigit():
+        return ("invalid", current_page, None, [])
+
+    index = int(selection_token) - 1
+    if index < 0 or index >= len(page_bills):
+        return ("invalid", current_page, None, [])
+
+    return ("selected", current_page, page_bills[index], parts[selection_position + 1 :])
 
 
 def _resolve_vote_choice(choice: str) -> str | None:
@@ -664,15 +717,25 @@ class UssdCallbackAPIView(APIView):
                     content_type="text/plain",
                 )
 
-            bill = _pick_bill_from_choice(active_bills, parts[1])
-            if not bill:
+            route, page, bill, tail = _resolve_bill_list_selection(parts, active_bills)
+            if route == "main_menu":
+                return HttpResponse(main_menu, content_type="text/plain")
+            if route == "menu":
+                return HttpResponse(
+                    _format_bill_list_menu("Active bills", active_bills, "Reply with 1*<number> for details", page=page),
+                    content_type="text/plain",
+                )
+            if route == "invalid":
                 return HttpResponse("END Invalid bill selection. Please try again.", content_type="text/plain")
 
-            if len(parts) == 2:
+            if bill is None:
+                return HttpResponse("END Invalid bill selection. Please try again.", content_type="text/plain")
+
+            if not tail:
                 return HttpResponse(_format_bill_detail_menu(bill), content_type="text/plain")
 
-            if parts[2] == "1":
-                if len(parts) != 3:
+            if tail[0] == "1":
+                if len(tail) != 1:
                     return HttpResponse("END Invalid option. Please try again.", content_type="text/plain")
 
                 _, created = create_subscription(bill, phone_number, "ussd")
@@ -681,21 +744,24 @@ class UssdCallbackAPIView(APIView):
                     if created
                     else f"You are already subscribed to {bill.title}."
                 )
-                return HttpResponse(f"END {message}", content_type="text/plain")
+                return HttpResponse(
+                    f"END {message}\nAn SMS confirmation is on the way.",
+                    content_type="text/plain",
+                )
 
-            if parts[2] == "2":
-                if len(parts) == 3:
+            if tail[0] == "2":
+                if len(tail) == 1:
                     return HttpResponse(_format_vote_menu(bill), content_type="text/plain")
-                if len(parts) == 4:
-                    vote_choice = _resolve_vote_choice(parts[3])
+                if len(tail) == 2:
+                    vote_choice = _resolve_vote_choice(tail[1])
                     if vote_choice is None:
                         return HttpResponse("END Invalid vote option.", content_type="text/plain")
                     create_poll_response(bill, phone_number, vote_choice)
                     return HttpResponse("END Your vote has been recorded. Thank you.", content_type="text/plain")
                 return HttpResponse("END Invalid vote option.", content_type="text/plain")
 
-            if parts[2] == "3":
-                if len(parts) != 3:
+            if tail[0] == "3":
+                if len(tail) != 1:
                     return HttpResponse("END Invalid option. Please try again.", content_type="text/plain")
                 return HttpResponse(_format_bill_summary(bill), content_type="text/plain")
 
@@ -718,7 +784,10 @@ class UssdCallbackAPIView(APIView):
                     if created
                     else f"You are already subscribed to {featured_bill.title}."
                 )
-                return HttpResponse(f"END {message}", content_type="text/plain")
+                return HttpResponse(
+                    f"END {message}\nAn SMS confirmation is on the way.",
+                    content_type="text/plain",
+                )
 
             if parts[1] == "2":
                 if len(parts) == 2:
@@ -743,12 +812,30 @@ class UssdCallbackAPIView(APIView):
                     content_type="text/plain",
                 )
 
-            bill = _pick_bill_from_choice(active_bills, parts[1])
-            if not bill:
+            route, page, bill, tail = _resolve_bill_list_selection(parts, active_bills)
+            if route == "main_menu":
+                return HttpResponse(main_menu, content_type="text/plain")
+            if route == "menu":
+                return HttpResponse(
+                    _format_bill_list_menu("Subscribe to a bill", active_bills, "Reply with 3*<number> to subscribe", page=page),
+                    content_type="text/plain",
+                )
+            if route == "invalid" or bill is None:
                 return HttpResponse("END Invalid bill selection. Please try again.", content_type="text/plain")
 
-            create_subscription(bill, phone_number, "ussd")
-            return HttpResponse(f"END You are now subscribed to {bill.title}.", content_type="text/plain")
+            if tail:
+                return HttpResponse("END Invalid option. Please try again.", content_type="text/plain")
+
+            _, created = create_subscription(bill, phone_number, "ussd")
+            message = (
+                f"You are now subscribed to {bill.title}."
+                if created
+                else f"You are already subscribed to {bill.title}."
+            )
+            return HttpResponse(
+                f"END {message}\nAn SMS confirmation is on the way.",
+                content_type="text/plain",
+            )
 
         if choice == "4":
             if not featured_bill:
@@ -774,7 +861,10 @@ class UssdCallbackAPIView(APIView):
                 "2: Featured bill details\n"
                 "3: Subscribe to a bill\n"
                 "4: Vote on featured bill\n"
+                "8: Next page\n"
+                "9: Previous page\n"
                 "SMS: TRACK <bill id or title> to 22334\n"
+                "SMS: STATUS <bill id or title> to 22334\n"
                 "Dial *384*16250# to start again.",
                 content_type="text/plain",
             )
