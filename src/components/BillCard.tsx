@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, FileText } from 'lucide-react';
 import { Bill, Petition } from '@/types';
+import { getBillPdfSourceUrl } from '@/lib/pdf';
 
 interface Props {
   bill: Bill;
@@ -12,15 +13,24 @@ interface Props {
 export default function BillCard({ bill, petition }: Props) {
   const livePetition = petition ?? bill.petition ?? undefined;
   const progressPercent = livePetition && livePetition.goal > 0 ? (livePetition.signatureCount / livePetition.goal) * 100 : 0;
+  const pdfUrl = getBillPdfSourceUrl(bill);
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition flex flex-col h-full">
       <div className="p-5 flex-1">
-        <div className="flex justify-between items-start mb-3">
+        <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
           <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded uppercase tracking-wider">
             {bill.category}
           </span>
-          <span className="text-sm font-medium text-slate-500">{bill.status}</span>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {pdfUrl && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-sky-700">
+                <FileText size={12} />
+                PDF available
+              </span>
+            )}
+            <span className="text-sm font-medium text-slate-500">{bill.status}</span>
+          </div>
         </div>
         {bill.sponsor && (
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">

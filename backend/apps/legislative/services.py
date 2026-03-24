@@ -1,13 +1,26 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 
 from django.db import transaction
 from django.db.models import F
+from django.utils import timezone
 from django.utils.text import slugify
 
+from .document_processing import PDFDocumentProcessingError, analyze_pdf_document, resolve_bill_pdf_url
 from .africastalking import AfricaTalkingConfigurationError, AfricaTalkingError, send_sms, summarize_sms_response
-from .models import Bill, LogEventType, Petition, PollChoice, PollResponse, Subscription, SubscriptionChannel, SystemLog
+from .models import (
+    Bill,
+    DocumentProcessingStatus,
+    LogEventType,
+    Petition,
+    PollChoice,
+    PollResponse,
+    Subscription,
+    SubscriptionChannel,
+    SystemLog,
+)
 
 
 SMS_SUBSCRIPTION_KEYWORDS = {"SUBSCRIBE", "TRACK", "FOLLOW", "JOIN"}
@@ -20,6 +33,96 @@ SMS_DELIVERY_FAILURE_STATUSES = {"failed", "undelivered", "rejected", "expired",
 
 def record_system_log(event_type: str, message: str, metadata: dict | None = None) -> SystemLog:
     return SystemLog.objects.create(event_type=event_type, message=message, metadata=metadata or {})
+
+
+def _document_state_from_bill(bill: Bill, source_url: str | None = None) -> dict:
+    return {
+        "status": bill.document_status,
+        "method": bill.document_method,
+        "sourceUrl": source_url or bill.document_source_url or "",
+        "text": bill.document_text,
+        "pages": bill.document_pages if isinstance(bill.document_pages, list) else [],
+        "pageCount": bill.document_page_count,
+        "wordCount": bill.document_word_count,
+        "error": bill.document_error,
+    }
+
+
+def _save_bill_document_state(
+    bill: Bill,
+    payload: dict,
+    source_url: str,
+    processed_at: datetime | None = None,
+) -> Bill:
+    bill.document_status = str(payload.get("status") or DocumentProcessingStatus.UNAVAILABLE)
+    bill.document_method = str(payload.get("method") or "")
+    bill.document_source_url = source_url
+    bill.document_text = str(payload.get("text") or "")
+    pages = payload.get("pages")
+    bill.document_pages = pages if isinstance(pages, list) else []
+
+    try:
+        bill.document_page_count = int(payload.get("pageCount") or 0)
+    except (TypeError, ValueError):
+        bill.document_page_count = 0
+
+    try:
+        bill.document_word_count = int(payload.get("wordCount") or 0)
+    except (TypeError, ValueError):
+        bill.document_word_count = 0
+
+    bill.document_error = str(payload.get("error") or "")
+    bill.document_processed_at = processed_at or timezone.now()
+    bill.save(
+        update_fields=[
+            "document_status",
+            "document_method",
+            "document_source_url",
+            "document_text",
+            "document_pages",
+            "document_error",
+            "document_page_count",
+            "document_word_count",
+            "document_processed_at",
+            "updated_at",
+        ]
+    )
+    return bill
+
+
+def process_bill_document(bill: Bill, force: bool = False) -> dict:
+    source_url = resolve_bill_pdf_url(bill.full_text_url, bill.parliament_url)
+    if not source_url:
+        return _document_state_from_bill(bill)
+
+    if (
+        not force
+        and bill.document_source_url == source_url
+        and bill.document_status in {
+            DocumentProcessingStatus.READY,
+            DocumentProcessingStatus.NEEDS_OCR,
+            DocumentProcessingStatus.FAILED,
+        }
+        and bill.document_processed_at is not None
+    ):
+        return _document_state_from_bill(bill, source_url=source_url)
+
+    try:
+        result = analyze_pdf_document(source_url)
+    except PDFDocumentProcessingError as exc:  # pragma: no cover - defensive wrapper
+        result = {
+            "status": DocumentProcessingStatus.FAILED,
+            "method": "",
+            "sourceUrl": source_url,
+            "text": "",
+            "pages": [],
+            "pageCount": 0,
+            "wordCount": 0,
+            "error": str(exc),
+        }
+
+    _save_bill_document_state(bill, result, source_url)
+    return result
 
 
 def _metadata_value(payload: dict | None, *keys: str) -> str:

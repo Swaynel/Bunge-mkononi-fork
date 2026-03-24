@@ -1,7 +1,10 @@
 import {
   Bill,
+  BillDetail,
   BillCategory,
   BillStatus,
+  BillVoteSummary,
+  BillVotesResponse,
   AdminSmsMetricsResponse,
   CountyStat,
   DashboardResponse,
@@ -209,18 +212,26 @@ export async function listBills(query: {
 }
 
 export async function getBill(id: string) {
-  return requestJson<Bill>(`/bills/${id}/`);
+  return requestJson<BillDetail>(`/bills/${id}/`);
 }
 
 export async function listRepresentatives(query: { billId?: string; search?: string } = {}) {
   return unwrapPaginated(
     await requestJson<PaginatedResponse<Representative>>('/representatives/', {
       query: {
-        bill: query.billId,
+        billId: query.billId,
         search: query.search,
       },
     }),
   );
+}
+
+export async function getBillVotes(billId: string) {
+  return requestJson<BillVotesResponse>(`/bills/${billId}/votes/`);
+}
+
+export async function getBillVoteSummary(billId: string) {
+  return requestJson<BillVoteSummary>(`/bills/${billId}/votes/summary/`);
 }
 
 export async function listCountyStats(query: { billId?: string } = {}) {

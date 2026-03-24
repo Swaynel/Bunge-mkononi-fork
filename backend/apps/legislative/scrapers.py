@@ -17,7 +17,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .models import BillStatus
-from .services import update_bill_status
+from .services import process_bill_document, update_bill_status
 
 logger = logging.getLogger(__name__)
 
@@ -386,14 +386,21 @@ def upsert_bills(bills: list[dict]) -> dict:
                 if previous_status and previous_status != bill.status:
                     update_bill_status(bill, bill.status, previous_status=previous_status, actor="scrape")
 
+            document_result = process_bill_document(bill)
             processed_bills.append(
                 {
                     "bill_id": bill_id,
                     "title": title,
                     "action": action,
                     "sponsor": sponsor,
+                    "document_status": document_result.get("status", ""),
+                    "document_method": document_result.get("method", ""),
                 }
             )
+            if document_result.get("status") == "failed":
+                document_error = str(document_result.get("error") or "").strip()
+                if document_error:
+                    errors.append(f"Document processing failed for '{title}': {document_error}")
         except Exception as exc:  # noqa: BLE001
             message = f"Error upserting bill '{data.get('title', '?')}': {exc}"
             logger.error(message)

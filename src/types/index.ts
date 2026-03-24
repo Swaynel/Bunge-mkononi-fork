@@ -11,6 +11,28 @@ export type VoteChoice = 'Yes' | 'No' | 'Abstain';
 export type CountySentiment = 'Support' | 'Oppose' | 'Mixed';
 export type SubscriptionChannel = 'sms' | 'ussd';
 export type RepresentativeRole = 'MP' | 'MCA' | 'Senator';
+export type BillDocumentStatus = 'unavailable' | 'needs_ocr' | 'ready' | 'failed';
+export type BillDocumentMethod = 'text' | 'ocr';
+
+export type BillDocumentBlock =
+  | {
+      type: 'heading';
+      text: string;
+      level?: number;
+    }
+  | {
+      type: 'paragraph';
+      text: string;
+    }
+  | {
+      type: 'list';
+      items: string[];
+    };
+
+export interface BillDocumentPage {
+  pageNumber: number;
+  blocks: BillDocumentBlock[];
+}
 
 export interface PollTally {
   yes: number;
@@ -55,6 +77,43 @@ export interface RepresentativeVoteSummary {
   votedAt?: string;
 }
 
+export interface BillVoteBreakdown {
+  county: string;
+  yes: number;
+  no: number;
+  abstain: number;
+  total: number;
+}
+
+export interface BillVotePartyBreakdown {
+  yes: number;
+  no: number;
+  abstain: number;
+  total: number;
+}
+
+export interface BillVoteSummary {
+  billId: string;
+  billTitle: string;
+  billStatus: BillStatus;
+  totalVotes: number;
+  yes: number;
+  no: number;
+  abstain: number;
+  yesPercent: number;
+  noPercent: number;
+  abstainPercent: number;
+  byCounty: BillVoteBreakdown[];
+  byParty: Record<string, BillVotePartyBreakdown>;
+}
+
+export interface BillVotesResponse {
+  billId: string;
+  billTitle: string;
+  totalVotes: number;
+  votes: RepresentativeVoteSummary[];
+}
+
 export interface Representative extends RepresentativeSummary {
   recentVotes?: {
     billId: string;
@@ -80,6 +139,15 @@ export interface Bill {
   dateIntroduced: string;
   isHot?: boolean;
   fullTextUrl?: string;
+  documentStatus?: BillDocumentStatus;
+  documentMethod?: BillDocumentMethod | '';
+  documentSourceUrl?: string;
+  documentText?: string;
+  documentPages?: BillDocumentPage[];
+  documentError?: string;
+  documentPageCount?: number;
+  documentWordCount?: number;
+  documentProcessedAt?: string | null;
   keyPoints?: string[];
   timeline?: BillTimelineEntry[];
   subscriberCount?: number;
@@ -97,6 +165,15 @@ export interface Bill {
 
 export interface BillDetail extends Bill {
   fullTextUrl: string;
+  documentStatus: BillDocumentStatus;
+  documentMethod: BillDocumentMethod | '';
+  documentSourceUrl: string;
+  documentText: string;
+  documentPages: BillDocumentPage[];
+  documentError: string;
+  documentPageCount: number;
+  documentWordCount: number;
+  documentProcessedAt: string | null;
   keyPoints: string[];
   timeline: BillTimelineEntry[];
   currentStage: BillStatus;

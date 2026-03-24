@@ -217,6 +217,31 @@ class BillSerializer(serializers.ModelSerializer):
         return CountyStatSerializer(counties, many=True).data
 
 
+class BillDetailSerializer(BillSerializer):
+    documentStatus = serializers.CharField(source="document_status", read_only=True)
+    documentMethod = serializers.CharField(source="document_method", read_only=True)
+    documentSourceUrl = serializers.CharField(source="document_source_url", read_only=True)
+    documentText = serializers.CharField(source="document_text", read_only=True)
+    documentPages = serializers.JSONField(source="document_pages", read_only=True)
+    documentError = serializers.CharField(source="document_error", read_only=True)
+    documentPageCount = serializers.IntegerField(source="document_page_count", read_only=True)
+    documentWordCount = serializers.IntegerField(source="document_word_count", read_only=True)
+    documentProcessedAt = serializers.DateTimeField(source="document_processed_at", read_only=True, allow_null=True)
+
+    class Meta(BillSerializer.Meta):
+        fields = BillSerializer.Meta.fields + [
+            "documentStatus",
+            "documentMethod",
+            "documentSourceUrl",
+            "documentText",
+            "documentPages",
+            "documentError",
+            "documentPageCount",
+            "documentWordCount",
+            "documentProcessedAt",
+        ]
+
+
 class ScrapeTriggerSerializer(serializers.Serializer):
     url = serializers.URLField(
         required=False,
@@ -229,4 +254,62 @@ class ScrapeTriggerSerializer(serializers.Serializer):
         min_value=5,
         max_value=120,
         help_text="HTTP request timeout in seconds.",
+    )
+
+
+class BillVoteCountyBreakdownSerializer(serializers.Serializer):
+    county = serializers.CharField()
+    yes = serializers.IntegerField()
+    no = serializers.IntegerField()
+    abstain = serializers.IntegerField()
+    total = serializers.IntegerField()
+
+
+class BillVoteSummarySerializer(serializers.Serializer):
+    billId = serializers.CharField()
+    billTitle = serializers.CharField()
+    billStatus = serializers.CharField(required=False, allow_blank=True)
+    totalVotes = serializers.IntegerField()
+    yes = serializers.IntegerField()
+    no = serializers.IntegerField()
+    abstain = serializers.IntegerField()
+    yesPercent = serializers.FloatField()
+    noPercent = serializers.FloatField()
+    abstainPercent = serializers.FloatField()
+    byCounty = BillVoteCountyBreakdownSerializer(many=True)
+    byParty = serializers.DictField(child=serializers.DictField(child=serializers.IntegerField()))
+
+
+class ScrapeRepresentativesTriggerSerializer(serializers.Serializer):
+    role = serializers.ChoiceField(
+        choices=["MP", "Senator", "all"],
+        default="all",
+        help_text="Which role to scrape: MP, Senator, or all.",
+    )
+    url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Override the default parliament members page URL.",
+    )
+    timeout = serializers.IntegerField(
+        required=False,
+        default=30,
+        min_value=5,
+        max_value=120,
+    )
+
+
+class ScrapeVotesTriggerSerializer(serializers.Serializer):
+    bill_id = serializers.CharField(
+        help_text="Bill.id to associate vote records with.",
+    )
+    url = serializers.URLField(
+        help_text="URL of the Hansard division page.",
+    )
+    timeout = serializers.IntegerField(
+        required=False,
+        default=30,
+        min_value=5,
+        max_value=120,
     )

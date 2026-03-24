@@ -5,8 +5,21 @@ from .models import Bill, CountyStat, Petition, PollResponse, Representative, Re
 
 @admin.register(Bill)
 class BillAdmin(admin.ModelAdmin):
-    list_display = ("id", "title", "sponsor", "status", "category", "date_introduced", "is_hot", "subscriber_count", "created_at")
-    list_filter = ("status", "category", "is_hot")
+    list_display = (
+        "id",
+        "title",
+        "sponsor",
+        "status",
+        "category",
+        "document_status",
+        "document_method",
+        "document_processed_at",
+        "date_introduced",
+        "is_hot",
+        "subscriber_count",
+        "created_at",
+    )
+    list_filter = ("status", "category", "is_hot", "document_status", "document_method")
     search_fields = ("id", "title", "summary", "sponsor")
     ordering = ("-is_hot", "-date_introduced", "title")
 

@@ -22,6 +22,26 @@ The repo now includes a Django REST API in `backend/` backed by SQL storage. Pos
 
 The backend also includes a Render Blueprint at `render.yaml` so you can provision the API and a matching Postgres database from the same repo.
 
+### Bill document processing
+Bill detail pages now prefer structured text over a raw PDF iframe.
+
+The backend pipeline:
+- downloads the bill PDF from the same Parliament source that the UI proxy serves
+- extracts text with `pdftotext` when the PDF already contains a text layer
+- falls back to local OCR for image-based PDFs when OCRmyPDF and its host dependencies are available
+- stores the extracted text and page structure on the `Bill` record
+
+Optional env vars:
+- `PDF_TEXT_MIN_WORDS` to tune when a PDF should be considered text-readable
+
+For image-only PDFs, install OCRmyPDF and its local OCR dependencies on the backend host.
+
+Backfill existing bills with:
+```bash
+cd backend
+python manage.py process_bill_documents
+```
+
 ## 🌐 Frontend to Backend Wiring
 The Next.js frontend now reads live data from the Django API.
 

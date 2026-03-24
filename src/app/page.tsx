@@ -74,10 +74,12 @@ export default function Home() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<'All Categories' | BillCategory>('All Categories');
   const deferredSearch = useDeferredValue(search);
-  const currentBillsKey = `search=${deferredSearch.trim()}|category=${category}`;
+  const searchTerm = deferredSearch.trim();
+  const currentBillsKey = `search=${searchTerm}|category=${category}`;
   const isDashboardLoading = dashboard === null && dashboardError === null;
   const isBillsLoading = loadedBillsKey !== currentBillsKey;
   const error = dashboardError ?? (loadedBillsKey === currentBillsKey ? billsError : null);
+  const hasSearchInput = search.length > 0;
 
   useEffect(() => {
     let active = true;
@@ -105,7 +107,7 @@ export default function Home() {
     let active = true;
 
     listBills({
-      search: deferredSearch.trim() || undefined,
+      search: searchTerm || undefined,
       category: category === 'All Categories' ? undefined : category,
       ordering: '-is_hot,-date_introduced',
     })
@@ -127,7 +129,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [currentBillsKey, category, deferredSearch]);
+  }, [currentBillsKey, category, searchTerm]);
 
   const featuredBill = dashboard?.featuredBill ?? bills[0] ?? null;
   const featuredPetition = featuredBill?.petition ?? null;
@@ -259,15 +261,30 @@ export default function Home() {
         </section>
 
         <div className="flex flex-col md:flex-row gap-4 mb-8">
-          <div className="relative flex-1">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              type="text"
-              placeholder="Search for a bill..."
-              className="w-full pl-12 pr-4 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none transition"
-            />
+          <div className="flex-1">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+              <input
+                aria-label="Search bills"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                type="text"
+                placeholder="Search by title, summary, sponsor, category, status, or ID..."
+                className="w-full pl-12 pr-24 py-4 bg-white border border-slate-200 rounded-2xl shadow-sm focus:ring-2 focus:ring-indigo-500 outline-none transition"
+              />
+              {hasSearchInput && (
+                <button
+                  type="button"
+                  onClick={() => setSearch('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+            <p className="mt-2 text-xs font-medium text-slate-500">
+              Search across bill titles, summaries, sponsors, categories, statuses, and IDs.
+            </p>
           </div>
           <select
             value={category}
@@ -284,7 +301,13 @@ export default function Home() {
           <section className="lg:col-span-3">
             <div className="flex items-center justify-between gap-4 mb-6">
               <h2 className="text-2xl font-bold text-slate-800">Legislative Feed</h2>
-              <p className="text-sm text-slate-500">{isBillsLoading ? 'Refreshing live data...' : `${bills.length} result(s)`}</p>
+              <p className="text-sm text-slate-500">
+                {isBillsLoading
+                  ? 'Refreshing live data...'
+                  : searchTerm
+                    ? `${bills.length} result(s) for "${searchTerm}"`
+                    : `${bills.length} result(s)`}
+              </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -293,7 +316,11 @@ export default function Home() {
               ))}
 
               {!isBillsLoading && bills.length === 0 && (
-                <p className="text-slate-500 col-span-full py-10 text-center">No bills found matching your criteria.</p>
+                <p className="text-slate-500 col-span-full py-10 text-center">
+                  {searchTerm
+                    ? `No bills matched "${searchTerm}". Try a different title, sponsor, category, status, or ID.`
+                    : 'No bills found matching your criteria.'}
+                </p>
               )}
             </div>
           </section>

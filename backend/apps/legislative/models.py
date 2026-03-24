@@ -46,6 +46,18 @@ class SubscriptionChannel(models.TextChoices):
     USSD = "ussd", "USSD"
 
 
+class DocumentProcessingStatus(models.TextChoices):
+    UNAVAILABLE = "unavailable", "Unavailable"
+    NEEDS_OCR = "needs_ocr", "Needs OCR"
+    READY = "ready", "Ready"
+    FAILED = "failed", "Failed"
+
+
+class DocumentExtractionMethod(models.TextChoices):
+    TEXT = "text", "Text extraction"
+    OCR = "ocr", "OCR"
+
+
 class LogEventType(models.TextChoices):
     STATUS_CHANGE = "status_change", "Status change"
     SMS_BROADCAST = "sms_broadcast", "SMS broadcast"
@@ -70,6 +82,24 @@ class Bill(models.Model):
     key_points = models.JSONField(default=list, blank=True)
     timeline = models.JSONField(default=list, blank=True)
     subscriber_count = models.PositiveIntegerField(default=0)
+    document_status = models.CharField(
+        max_length=16,
+        choices=DocumentProcessingStatus.choices,
+        default=DocumentProcessingStatus.UNAVAILABLE,
+    )
+    document_method = models.CharField(
+        max_length=16,
+        choices=DocumentExtractionMethod.choices,
+        blank=True,
+        default="",
+    )
+    document_source_url = models.URLField(blank=True, default="", max_length=2048)
+    document_text = models.TextField(blank=True, default="")
+    document_pages = models.JSONField(default=list, blank=True)
+    document_error = models.TextField(blank=True, default="")
+    document_page_count = models.PositiveIntegerField(default=0)
+    document_word_count = models.PositiveIntegerField(default=0)
+    document_processed_at = models.DateTimeField(null=True, blank=True)
     sponsor = models.CharField(
         max_length=255,
         blank=True,

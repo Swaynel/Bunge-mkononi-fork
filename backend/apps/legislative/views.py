@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import Sequence, cast
 
 from django.conf import settings
@@ -16,13 +16,18 @@ from rest_framework.response import Response
 from rest_framework.request import Request
 from rest_framework.views import APIView
 
-from .models import Bill, BillStatus, CountyStat, LogEventType, Petition, PollChoice, PollResponse, Representative, Subscription, SubscriptionChannel, SystemLog
+from .models import Bill, BillStatus, CountyStat, LogEventType, Petition, PollChoice, PollResponse, Representative, RepresentativeVote, Subscription, SubscriptionChannel, SystemLog
 from .serializers import (
     BillSerializer,
+    BillDetailSerializer,
     CountyStatSerializer,
+    BillVoteSummarySerializer,
     PetitionSerializer,
     PollResponseSerializer,
     RepresentativeSerializer,
+    RepresentativeVoteNestedSerializer,
+    ScrapeRepresentativesTriggerSerializer,
+    ScrapeVotesTriggerSerializer,
     ScrapeTriggerSerializer,
     SubscriptionSerializer,
     SystemLogSerializer,
@@ -335,8 +340,13 @@ class BillViewSet(viewsets.ModelViewSet):
             "subscriptions",
         )
     )
-    search_fields = ["title", "summary", "category", "status", "sponsor"]
+    search_fields = ["id", "title", "summary", "category", "status", "sponsor"]
     ordering_fields = ["date_introduced", "title", "subscriber_count", "is_hot"]
+
+    def get_serializer_class(self):  # pyright: ignore[reportIncompatibleMethodOverride]
+        if getattr(self, "action", "") == "retrieve":
+            return BillDetailSerializer
+        return super().get_serializer_class()
 
     def get_queryset(self) -> QuerySet[Bill]:  # pyright: ignore[reportIncompatibleMethodOverride]
         request = cast(Request, self.request)
@@ -358,11 +368,16 @@ class BillViewSet(viewsets.ModelViewSet):
         if hot is not None:
             queryset = queryset.filter(is_hot=hot.lower() in {"1", "true", "yes", "on"})
         if search:
-            queryset = queryset.filter(
-                Q(title__icontains=search)
-                | Q(summary__icontains=search)
-                | Q(sponsor__icontains=search)
-            )
+            search_term = search.strip()
+            if search_term:
+                queryset = queryset.filter(
+                    Q(id__icontains=search_term)
+                    | Q(title__icontains=search_term)
+                    | Q(summary__icontains=search_term)
+                    | Q(category__icontains=search_term)
+                    | Q(status__icontains=search_term)
+                    | Q(sponsor__icontains=search_term)
+                )
         if sponsor:
             queryset = queryset.filter(sponsor__icontains=sponsor)
         if from_date:
@@ -432,6 +447,13 @@ class RepresentativeViewSet(viewsets.ReadOnlyModelViewSet):
                 | Q(county__icontains=search)
                 | Q(party__icontains=search)
             )
+        role = request.query_params.get("role")
+        if role:
+            queryset = queryset.filter(role__iexact=role)
+        bill_id = request.query_params.get("billId") or request.query_params.get("bill")
+        if bill_id:
+            queryset = queryset.filter(votes__bill_id=bill_id)
+            return queryset.distinct()
         return queryset
 
     def get_serializer_context(self):
@@ -634,7 +656,8 @@ class ScrapeBillsAPIView(APIView):
 
         validated_data = cast(dict[str, object], serializer.validated_data or {})
         url = str(validated_data.get("url", ""))
-        timeout = int(validated_data.get("timeout", 30))
+        timeout_value = validated_data.get("timeout")
+        timeout = timeout_value if isinstance(timeout_value, int) else 30
 
         from .scrapers import scrape_parliament_bills  # noqa: PLC0415
 
@@ -891,3 +914,290 @@ class UssdCallbackAPIView(APIView):
             )
 
         return HttpResponse("END Invalid option.", content_type="text/plain")
+
+
+class ScrapeRepresentativesAPIView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request):
+        serializer = ScrapeRepresentativesTriggerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        validated = cast(dict[str, object], serializer.validated_data or {})
+        role = str(validated.get("role", "all"))
+        url = str(validated.get("url", "") or "")
+        timeout_value = validated.get("timeout", 30)
+        timeout = int(timeout_value) if isinstance(timeout_value, int) else 30
+
+        from .representative_scrapers import MP_URL, SENATOR_URL, scrape_all, scrape_representatives  # noqa: PLC0415
+
+        if role == "all":
+            summary = scrape_all(timeout=timeout)
+
+            record_system_log(
+                LogEventType.SCRAPE,
+                (
+                    "Representative scrape (all): "
+                    f"{summary['total_members_found']} found, "
+                    f"{summary['total_created']} created, "
+                    f"{summary['total_updated']} updated."
+                ),
+                {
+                    "role": "all",
+                    "mp": summary["mp"],
+                    "senator": summary["senator"],
+                },
+            )
+
+            return Response(
+                {
+                    "role": "all",
+                    "membersFound": {
+                        "MP": summary["mp"]["members_found"],
+                        "Senator": summary["senator"]["members_found"],
+                    },
+                    "created": {
+                        "MP": summary["mp"]["created"],
+                        "Senator": summary["senator"]["created"],
+                    },
+                    "updated": {
+                        "MP": summary["mp"]["updated"],
+                        "Senator": summary["senator"]["updated"],
+                    },
+                    "pagesFetched": {
+                        "MP": summary["mp"]["pages_fetched"],
+                        "Senator": summary["senator"]["pages_fetched"],
+                    },
+                    "errors": summary["total_errors"],
+                },
+                status=status.HTTP_200_OK if not summary["total_errors"] else status.HTTP_207_MULTI_STATUS,
+            )
+
+        target_url = url or (MP_URL if role == "MP" else SENATOR_URL)
+        summary = scrape_representatives(url=target_url, role=role, timeout=timeout)
+
+        record_system_log(
+            LogEventType.SCRAPE,
+            (
+                f"Representative scrape ({role}): "
+                f"{summary['members_found']} found, "
+                f"{summary['created']} created, "
+                f"{summary['updated']} updated."
+            ),
+            {
+                "role": role,
+                "url": target_url,
+                "members_found": summary["members_found"],
+                "pages_fetched": summary["pages_fetched"],
+                "created": summary["created"],
+                "updated": summary["updated"],
+                "errors": summary["errors"],
+            },
+        )
+
+        return Response(
+            {
+                "role": role,
+                "url": target_url,
+                "membersFound": summary["members_found"],
+                "pagesFetched": summary["pages_fetched"],
+                "created": summary["created"],
+                "updated": summary["updated"],
+                "processed": [
+                    {"id": item["id"], "name": item["name"], "action": item["action"]}
+                    for item in summary.get("processed", [])
+                ],
+                "errors": summary["errors"],
+            },
+            status=status.HTTP_200_OK if not summary["errors"] else status.HTTP_207_MULTI_STATUS,
+        )
+
+
+class ScrapeVotesAPIView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request):
+        serializer = ScrapeVotesTriggerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        validated = cast(dict[str, object], serializer.validated_data or {})
+        bill_id = str(validated["bill_id"])
+        url = str(validated["url"])
+        timeout_value = validated.get("timeout", 30)
+        timeout = int(timeout_value) if isinstance(timeout_value, int) else 30
+
+        from .representative_scrapers import scrape_representative_votes  # noqa: PLC0415
+
+        summary = scrape_representative_votes(bill_id=bill_id, url=url, timeout=timeout)
+
+        record_system_log(
+            LogEventType.SCRAPE,
+            (
+                f"Vote scrape for '{bill_id}': "
+                f"{summary['votes_found']} found, "
+                f"{summary['created']} created, "
+                f"{summary['updated']} updated, "
+                f"{summary.get('unmatched', 0)} unmatched."
+            ),
+            {
+                "bill_id": bill_id,
+                "url": url,
+                "votes_found": summary["votes_found"],
+                "created": summary["created"],
+                "updated": summary["updated"],
+                "unmatched": summary.get("unmatched", 0),
+                "errors": summary["errors"],
+            },
+        )
+
+        return Response(
+            {
+                "billId": summary["bill_id"],
+                "url": summary["url"],
+                "votesFound": summary["votes_found"],
+                "created": summary["created"],
+                "updated": summary["updated"],
+                "unmatched": summary.get("unmatched", 0),
+                "errors": summary["errors"],
+                "processed": summary.get("processed", []),
+            },
+            status=status.HTTP_200_OK if not summary["errors"] else status.HTTP_207_MULTI_STATUS,
+        )
+
+
+class BillVotesAPIView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, bill_id: str):
+        bill = Bill.objects.filter(pk=bill_id).first()
+        if not bill:
+            return Response(
+                {"detail": f"Bill '{bill_id}' not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        queryset = (
+            RepresentativeVote.objects
+            .filter(bill=bill)
+            .select_related("representative")
+            .order_by("representative__name")
+        )
+
+        params = request.query_params
+        vote_filter = params.get("vote")
+        county_filter = params.get("county")
+        party_filter = params.get("party")
+        role_filter = params.get("role")
+
+        if vote_filter:
+            queryset = queryset.filter(vote=vote_filter)
+        if county_filter:
+            queryset = queryset.filter(representative__county__icontains=county_filter)
+        if party_filter:
+            queryset = queryset.filter(representative__party__icontains=party_filter)
+        if role_filter:
+            queryset = queryset.filter(representative__role__iexact=role_filter)
+
+        votes_data = RepresentativeVoteNestedSerializer(queryset, many=True).data
+        enriched = []
+        for vote_obj, vote_dict in zip(queryset, votes_data):
+            representative = vote_obj.representative
+            enriched.append(
+                {
+                    **vote_dict,
+                    "representative": {
+                        **vote_dict["representative"],
+                        "constituency": representative.constituency,
+                        "county": representative.county,
+                        "party": representative.party,
+                        "role": representative.role,
+                    },
+                }
+            )
+
+        return Response(
+            {
+                "billId": bill.id,
+                "billTitle": bill.title,
+                "totalVotes": len(enriched),
+                "votes": enriched,
+            }
+        )
+
+
+class BillVoteSummaryAPIView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, bill_id: str):
+        bill = Bill.objects.filter(pk=bill_id).first()
+        if not bill:
+            return Response(
+                {"detail": f"Bill '{bill_id}' not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        votes = (
+            RepresentativeVote.objects
+            .filter(bill=bill)
+            .select_related("representative")
+        )
+
+        total = yes = no = abstain = 0
+        county_totals: dict[str, dict[str, int]] = defaultdict(lambda: {"yes": 0, "no": 0, "abstain": 0})
+        party_totals: dict[str, dict[str, int]] = defaultdict(lambda: {"yes": 0, "no": 0, "abstain": 0})
+
+        for vote in votes:
+            total += 1
+            representative = vote.representative
+            county = representative.county or "Unknown"
+            party = representative.party or "Independent"
+
+            if vote.vote == "Yes":
+                yes += 1
+                county_totals[county]["yes"] += 1
+                party_totals[party]["yes"] += 1
+            elif vote.vote == "No":
+                no += 1
+                county_totals[county]["no"] += 1
+                party_totals[party]["no"] += 1
+            else:
+                abstain += 1
+                county_totals[county]["abstain"] += 1
+                party_totals[party]["abstain"] += 1
+
+        def pct(value: int) -> float:
+            return round((value / total) * 100, 1) if total else 0.0
+
+        payload = {
+            "billId": bill.id,
+            "billTitle": bill.title,
+            "billStatus": bill.status,
+            "totalVotes": total,
+            "yes": yes,
+            "no": no,
+            "abstain": abstain,
+            "yesPercent": pct(yes),
+            "noPercent": pct(no),
+            "abstainPercent": pct(abstain),
+            "byCounty": [
+                {
+                    "county": county,
+                    "yes": data["yes"],
+                    "no": data["no"],
+                    "abstain": data["abstain"],
+                    "total": data["yes"] + data["no"] + data["abstain"],
+                }
+                for county, data in sorted(county_totals.items())
+            ],
+            "byParty": {
+                party: {
+                    "yes": data["yes"],
+                    "no": data["no"],
+                    "abstain": data["abstain"],
+                    "total": data["yes"] + data["no"] + data["abstain"],
+                }
+                for party, data in sorted(party_totals.items())
+            },
+        }
+
+        return Response(BillVoteSummarySerializer(payload).data)
