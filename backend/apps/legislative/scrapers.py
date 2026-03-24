@@ -17,6 +17,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from .models import BillStatus
+from .services import update_bill_status
 
 logger = logging.getLogger(__name__)
 
@@ -373,13 +374,17 @@ def upsert_bills(bills: list[dict]) -> dict:
             bill_id = data.pop("id")
             title = data.get("title", bill_id)
             sponsor = data.get("sponsor", "")
-            _, was_created = Bill.objects.update_or_create(id=bill_id, defaults=data)
+            previous_bill = Bill.objects.filter(pk=bill_id).only("status").first()
+            previous_status = previous_bill.status if previous_bill else None
+            bill, was_created = Bill.objects.update_or_create(id=bill_id, defaults=data)
             if was_created:
                 created += 1
                 action = "created"
             else:
                 updated += 1
                 action = "updated"
+                if previous_status and previous_status != bill.status:
+                    update_bill_status(bill, bill.status, previous_status=previous_status, actor="scrape")
 
             processed_bills.append(
                 {

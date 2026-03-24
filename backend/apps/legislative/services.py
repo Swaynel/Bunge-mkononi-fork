@@ -11,6 +11,7 @@ from .models import Bill, LogEventType, Petition, PollChoice, PollResponse, Subs
 
 
 SMS_SUBSCRIPTION_KEYWORDS = {"SUBSCRIBE", "TRACK", "FOLLOW", "JOIN"}
+SMS_STATUS_KEYWORDS = {"STATUS", "DETAIL", "DETAILS", "CURRENT"}
 SMS_HELP_KEYWORDS = {"HELP", "INFO", "MENU", "START"}
 SMS_UNSUBSCRIBE_KEYWORDS = {"STOP", "UNSUBSCRIBE", "CANCEL", "REMOVE"}
 SMS_DELIVERY_SUCCESS_STATUSES = {"success", "delivered", "sent"}
@@ -118,6 +119,31 @@ def sum_log_quantity(event_type: str) -> int:
     return total
 
 
+def _truncate_text(value: str, limit: int = 120) -> str:
+    text = " ".join((value or "").split()).strip()
+    if len(text) <= limit:
+        return text
+    return f"{text[: limit - 3].rstrip()}..."
+
+
+def _format_bill_sms_summary(bill: Bill) -> str:
+    petition = getattr(bill, "petition", None)
+    signatures = petition.signature_count if petition else 0
+    summary = _truncate_text(str(bill.summary or ""), 120)
+    sponsor = bill.sponsor or "N/A"
+    lines = [
+        f"Status: {bill.status}",
+        f"Sponsor: {sponsor}",
+        f"Supporters: {signatures}",
+        f"Summary: {summary or 'No summary available.'}",
+    ]
+    return "\n".join(lines)
+
+
+def _build_status_change_sms_message(bill: Bill, previous_status: str, new_status: str) -> str:
+    return f"Update for {bill.title}: {previous_status} -> {new_status}. Reply STATUS {bill.id} for details."
+
+
 def parse_sms_subscription_command(message: str) -> tuple[str, str]:
     text = (message or "").strip()
     if not text:
@@ -132,6 +158,9 @@ def parse_sms_subscription_command(message: str) -> tuple[str, str]:
 
     if command in SMS_UNSUBSCRIBE_KEYWORDS:
         return ("unsubscribe", remainder)
+
+    if command in SMS_STATUS_KEYWORDS:
+        return ("status", remainder)
 
     if command in SMS_SUBSCRIPTION_KEYWORDS:
         return ("subscribe", remainder)
@@ -160,8 +189,9 @@ def record_sms_inbound_message(payload: dict | None) -> dict:
 
     if command == "help":
         response_message = (
-            "Send TRACK <bill id or bill title> to subscribe to a bill, "
-            "or use the admin page to manage subscriptions."
+            "Send TRACK <bill id or bill title> to subscribe to a bill. "
+            "Send STATUS <bill id or bill title> to check the latest bill update. "
+            "Use the admin page to manage subscriptions."
         )
         metadata["action"] = "help"
         record_system_log(
@@ -194,6 +224,35 @@ def record_sms_inbound_message(payload: dict | None) -> dict:
             "message": message_text,
             "response_message": response_message,
             "bill": None,
+            "created": False,
+        }
+
+    if command == "status":
+        summary = _format_bill_sms_summary(bill)
+        metadata.update(
+            {
+                "action": "status",
+                "billId": bill.id,
+                "billTitle": bill.title,
+            }
+        )
+        record_system_log(
+            LogEventType.SMS_INBOUND,
+            f"SMS inbound bill status lookup for {bill.title} from {phone_number or 'unknown number'}.",
+            metadata,
+        )
+        response_message = (
+            f"{bill.title}\n"
+            f"Bill ID: {bill.id}\n"
+            f"{summary}\n"
+            f"Reply TRACK {bill.id} to subscribe."
+        )
+        return {
+            "action": "status",
+            "phone_number": phone_number,
+            "message": message_text,
+            "response_message": response_message,
+            "bill": bill,
             "created": False,
         }
 
@@ -234,6 +293,7 @@ def record_sms_inbound_message(payload: dict | None) -> dict:
             "created": False,
         }
 
+    summary = _format_bill_sms_summary(bill)
     subscription, created = create_subscription(bill, phone_number, "sms")
     metadata.update(
         {
@@ -254,6 +314,13 @@ def record_sms_inbound_message(payload: dict | None) -> dict:
         f"You are subscribed to {bill.title}."
         if created
         else f"You are already subscribed to {bill.title}."
+    )
+    response_message = (
+        f"{response_message}\n"
+        f"{bill.title}\n"
+        f"Bill ID: {bill.id}\n"
+        f"{summary}\n"
+        f"Reply STATUS {bill.id} for the latest bill update."
     )
     return {
         "action": "subscribe",
@@ -317,6 +384,14 @@ def update_bill_status(bill: Bill, new_status: str, actor: str | None = None, pr
         f"{bill.title} moved from {previous_status} to {new_status}.",
         payload,
     )
+
+    def _notify_subscribers() -> None:
+        try:
+            broadcast_bill_update(bill, _build_status_change_sms_message(bill, previous_status, new_status))
+        except AfricaTalkingError:
+            return
+
+    transaction.on_commit(_notify_subscribers)
     return bill
 
 

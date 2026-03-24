@@ -4,7 +4,7 @@ Bunge Mkononi is a civic-tech platform designed to bridge the gap between the Ke
 ## 🚀 Key Features
 1. Citizen DashboardLive Bill Tracking: A visual timeline showing the progress of bills from First Reading to Presidential Assent.Member Tracker: A transparency tool showing how specific MPs voted on key legislation.Participation Hub: A "Live Opinion Poll" allowing citizens to vote "Support" or "Oppose" on active bills.Regional Impact Map: Data visualization showing sentiment across different counties.
 2. Admin Command Center (Protected)Secure Access: Guarded by a dedicated authentication layer (AdminGuard).Legislative Management: Admins can transition bills through different stages.AT SMS Broadcaster: A one-click button to trigger mass SMS alerts to thousands of subscribers via Africa's Talking API.System Logs: Real-time monitoring of USSD hits and SMS dispatch status.
-3. Inclusive Offline Access (Africa's Talking)USSD (*384*16250#): Allows users without smartphones to vote and check bill status.SMS (22334): Users can send keywords like TRACK [BillID] to receive automated status updates.🛠️ Frontend Technical StackFramework: Next.js 14+ (App Router)Styling: Tailwind CSS (Mobile-first, dark/light theme separation)Icons: Lucide ReactState Management: React Hooks (useState, useEffect)Animations: Framer Motion / CSS Transitions
+3. Inclusive Offline Access (Africa's Talking)USSD (*384*16250#): Allows users without smartphones to browse bills, view details, subscribe, and vote.SMS (22334): Users can send keywords like TRACK [BillID] to receive automated status updates.🛠️ Frontend Technical StackFramework: Next.js 14+ (App Router)Styling: Tailwind CSS (Mobile-first, dark/light theme separation)Icons: Lucide ReactState Management: React Hooks (useState, useEffect)Animations: Framer Motion / CSS Transitions
 
 
 ### 🔌 Integration Points
@@ -76,11 +76,30 @@ Set these in `backend/.env` or your shell before using the admin broadcast butto
 - `AFRICASTALKING_SENDER_ID`
 - `AFRICASTALKING_SMS_TIMEOUT`
 
+SMS commands:
+- `TRACK <bill id or bill title>` subscribes the phone number and returns the bill's current status summary.
+- `STATUS <bill id or bill title>` returns the latest bill status without creating a subscription.
+- Broadcast SMS now uses the bill's current status by default instead of a generic placeholder.
+- Subscribers are also pinged automatically whenever a bill status changes, whether the change comes from the admin screen or the scraper.
+
 ### Africa's Talking webhooks
 Configure these callback URLs in Africa's Talking:
 - Inbound SMS callback: `POST /api/sms/inbound/`
 - Delivery report callback: `POST /api/sms/delivery/`
 - USSD callback: `POST /api/ussd/`
+
+USSD menu flow:
+- `1` to browse active bills and open bill details
+- `2` to open the featured bill details menu
+- `3` to subscribe directly to a bill
+- `4` to vote on the featured bill
+- `5` for help
+- `0` to go back or exit the session
+- Bill detail menus include:
+  - `1` to subscribe
+  - `2` to vote
+  - `3` to read the summary
+  - `0` to return to the main menu
 
 The admin metrics page for these webhooks lives at `/admin/metrics`.
 Inbound SMS subscribers can text `TRACK <bill id or bill title>` to the shortcode you configure on the Africa's Talking side.

@@ -236,13 +236,13 @@ export default function AdminPanel() {
     setError(null);
 
     try {
-      await broadcastBill(billId, `Update for ${title}`);
-      setSystemNote(`Broadcast queued for ${title}.`);
+      await broadcastBill(billId);
+      setSystemNote(`Broadcast queued for ${title}. Subscribers will get the current bill status.`);
       setLogs((current) => [
         {
           id: Date.now(),
           eventType: 'sms_broadcast',
-          message: `Broadcast queued for ${title}.`,
+          message: `Broadcast queued for ${title} with the bill's current status.`,
           metadata: { billId, quantity: 1 },
           createdAt: new Date().toISOString(),
         },

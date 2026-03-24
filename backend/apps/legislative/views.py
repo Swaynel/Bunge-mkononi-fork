@@ -101,6 +101,111 @@ def _bucket_delivery_status(status: str) -> str:
     return "pending"
 
 
+def _get_featured_bill() -> Bill | None:
+    return Bill.objects.filter(is_hot=True).select_related("petition").first() or Bill.objects.select_related("petition").first()
+
+
+def _get_active_bills(limit: int = 5) -> list[Bill]:
+    return list(Bill.objects.exclude(status=BillStatus.PRESIDENTIAL_ASSENT).select_related("petition")[:limit])
+
+
+def _pick_bill_from_choice(bills: list[Bill], choice: str) -> Bill | None:
+    if not choice.isdigit():
+        return None
+
+    index = int(choice) - 1
+    if index < 0 or index >= len(bills):
+        return None
+
+    return bills[index]
+
+
+def _format_ussd_main_menu() -> str:
+    return (
+        "CON Bunge Mkononi\n"
+        "1. View active bills\n"
+        "2. Featured bill details\n"
+        "3. Subscribe to a bill\n"
+        "4. Vote on featured bill\n"
+        "5. Help\n"
+        "0. Exit"
+    )
+
+
+def _format_bill_detail_menu(bill: Bill) -> str:
+    petition = getattr(bill, "petition", None)
+    signatures = petition.signature_count if petition else 0
+    sponsor = bill.sponsor or "N/A"
+    introduced = bill.date_introduced.strftime("%d %b %Y")
+    return (
+        f"CON {bill.title}\n"
+        f"Bill ID: {bill.id}\n"
+        f"Category: {bill.category}\n"
+        f"Status: {bill.status}\n"
+        f"Sponsor: {sponsor}\n"
+        f"Introduced: {introduced}\n"
+        f"Signatures: {signatures}\n"
+        "1. Subscribe\n"
+        "2. Vote\n"
+        "3. Summary\n"
+        "0. Main menu"
+    )
+
+
+def _format_bill_summary(bill: Bill) -> str:
+    summary = str(bill.summary or "").strip()
+    if len(summary) > 180:
+        summary = f"{summary[:177].rstrip()}..."
+
+    key_points = bill.key_points if isinstance(bill.key_points, list) else []
+    lines = [
+        f"END {bill.title}",
+        f"Bill ID: {bill.id}",
+        f"Category: {bill.category}",
+        f"Status: {bill.status}",
+        f"Subscribers: {bill.subscriber_count}",
+        f"Summary: {summary or 'No summary available.'}",
+    ]
+
+    if key_points:
+        lines.append("Key points:")
+        for index, point in enumerate(key_points[:3], start=1):
+            lines.append(f"{index}. {point}")
+
+    if bill.parliament_url:
+        lines.append(f"Parliament: {bill.parliament_url}")
+
+    return "\n".join(lines)
+
+
+def _format_vote_menu(bill: Bill) -> str:
+    return (
+        f"CON Vote on {bill.title}\n"
+        f"Bill ID: {bill.id}\n"
+        "1. Support\n"
+        "2. Oppose\n"
+        "3. Need more info\n"
+        "0. Main menu"
+    )
+
+
+def _format_bill_list_menu(title: str, bills: list[Bill], prompt: str) -> str:
+    if not bills:
+        return "END No active bills found right now."
+
+    lines = [f"{index}. {bill.id} - {bill.title}" for index, bill in enumerate(bills, start=1)]
+    return "CON " + title + "\n" + "\n".join(lines) + f"\n{prompt}\n0. Main menu"
+
+
+def _resolve_vote_choice(choice: str) -> str | None:
+    vote_choice_map = {
+        "1": PollChoice.SUPPORT,
+        "2": PollChoice.OPPOSE,
+        "3": PollChoice.MORE_INFO,
+    }
+    return vote_choice_map.get(choice)
+
+
 class HealthCheckAPIView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -209,7 +314,8 @@ class BillViewSet(viewsets.ModelViewSet):
         previous_status = serializer.instance.status
         bill = serializer.save()
         if previous_status != bill.status:
-            update_bill_status(bill, bill.status, previous_status=previous_status)
+            actor = getattr(self.request.user, "username", "") or None
+            update_bill_status(bill, bill.status, previous_status=previous_status, actor=actor)
 
     @action(detail=True, methods=["post"], permission_classes=[permissions.IsAdminUser])
     def broadcast(self, request, pk=None):
@@ -535,80 +641,142 @@ class UssdCallbackAPIView(APIView):
             },
         )
 
-        featured_bill = Bill.objects.filter(is_hot=True).select_related("petition").first() or Bill.objects.select_related("petition").first()
+        featured_bill = _get_featured_bill()
+        active_bills = _get_active_bills()
+        main_menu = _format_ussd_main_menu()
 
         if not text:
-            return HttpResponse(
-                "CON Bunge Mkononi\n"
-                "1. View active bills\n"
-                "2. Subscribe to a bill\n"
-                "3. Vote on the featured bill",
-                content_type="text/plain",
-            )
+            return HttpResponse(main_menu, content_type="text/plain")
 
         parts = text.split("*")
         choice = parts[0]
 
+        if len(parts) > 1 and parts[-1] == "0":
+            return HttpResponse(main_menu, content_type="text/plain")
+
+        if choice == "0":
+            return HttpResponse("END Thank you for using Bunge Mkononi.", content_type="text/plain")
+
         if choice == "1":
             if len(parts) == 1:
-                active_bills = Bill.objects.exclude(status=BillStatus.PRESIDENTIAL_ASSENT)[:5]
-                lines = [f"{index + 1}. {bill.id} - {bill.title}" for index, bill in enumerate(active_bills)]
-                if not lines:
-                    return HttpResponse("END No active bills found.", content_type="text/plain")
                 return HttpResponse(
-                    "CON Active bills\n" + "\n".join(lines) + "\nReply with 1*<billId> for details",
+                    _format_bill_list_menu("Active bills", active_bills, "Reply with 1*<number> for details"),
                     content_type="text/plain",
                 )
 
-            bill_id = parts[1]
-            bill = Bill.objects.select_related("petition").filter(pk=bill_id).first()
+            bill = _pick_bill_from_choice(active_bills, parts[1])
             if not bill:
-                return HttpResponse("END Bill not found.", content_type="text/plain")
+                return HttpResponse("END Invalid bill selection. Please try again.", content_type="text/plain")
 
-            petition = getattr(bill, "petition", None)
-            signatures = petition.signature_count if petition else 0
-            return HttpResponse(
-                f"END {bill.title}\nStatus: {bill.status}\nSignatures: {signatures}",
-                content_type="text/plain",
-            )
+            if len(parts) == 2:
+                return HttpResponse(_format_bill_detail_menu(bill), content_type="text/plain")
+
+            if parts[2] == "1":
+                if len(parts) != 3:
+                    return HttpResponse("END Invalid option. Please try again.", content_type="text/plain")
+
+                _, created = create_subscription(bill, phone_number, "ussd")
+                message = (
+                    f"You are now subscribed to {bill.title}."
+                    if created
+                    else f"You are already subscribed to {bill.title}."
+                )
+                return HttpResponse(f"END {message}", content_type="text/plain")
+
+            if parts[2] == "2":
+                if len(parts) == 3:
+                    return HttpResponse(_format_vote_menu(bill), content_type="text/plain")
+                if len(parts) == 4:
+                    vote_choice = _resolve_vote_choice(parts[3])
+                    if vote_choice is None:
+                        return HttpResponse("END Invalid vote option.", content_type="text/plain")
+                    create_poll_response(bill, phone_number, vote_choice)
+                    return HttpResponse("END Your vote has been recorded. Thank you.", content_type="text/plain")
+                return HttpResponse("END Invalid vote option.", content_type="text/plain")
+
+            if parts[2] == "3":
+                if len(parts) != 3:
+                    return HttpResponse("END Invalid option. Please try again.", content_type="text/plain")
+                return HttpResponse(_format_bill_summary(bill), content_type="text/plain")
+
+            return HttpResponse("END Invalid option. Please try again.", content_type="text/plain")
 
         if choice == "2":
-            if len(parts) == 1:
-                active_bills = Bill.objects.exclude(status=BillStatus.PRESIDENTIAL_ASSENT)[:5]
-                lines = [f"{index + 1}. {bill.id} - {bill.title}" for index, bill in enumerate(active_bills)]
-                return HttpResponse(
-                    "CON Subscribe to which bill?\n" + "\n".join(lines) + "\nReply with 2*<billId>",
-                    content_type="text/plain",
-                )
-
-            bill_id = parts[1]
-            bill = Bill.objects.filter(pk=bill_id).first()
-            if not bill:
-                return HttpResponse("END Bill not found.", content_type="text/plain")
-
-            create_subscription(bill, phone_number, "ussd")
-            return HttpResponse(f"END You are now subscribed to {bill.title}.", content_type="text/plain")
-
-        if choice == "3":
             if not featured_bill:
                 return HttpResponse("END No featured bill available right now.", content_type="text/plain")
 
             if len(parts) == 1:
+                return HttpResponse(_format_bill_detail_menu(featured_bill), content_type="text/plain")
+
+            if parts[1] == "1":
+                if len(parts) != 2:
+                    return HttpResponse("END Invalid option. Please try again.", content_type="text/plain")
+
+                _, created = create_subscription(featured_bill, phone_number, "ussd")
+                message = (
+                    f"You are now subscribed to {featured_bill.title}."
+                    if created
+                    else f"You are already subscribed to {featured_bill.title}."
+                )
+                return HttpResponse(f"END {message}", content_type="text/plain")
+
+            if parts[1] == "2":
+                if len(parts) == 2:
+                    return HttpResponse(_format_vote_menu(featured_bill), content_type="text/plain")
+                if len(parts) == 3:
+                    vote_choice = _resolve_vote_choice(parts[2])
+                    if vote_choice is None:
+                        return HttpResponse("END Invalid vote option.", content_type="text/plain")
+                    create_poll_response(featured_bill, phone_number, vote_choice)
+                    return HttpResponse("END Your vote has been recorded. Thank you.", content_type="text/plain")
+                return HttpResponse("END Invalid vote option.", content_type="text/plain")
+
+            if parts[1] == "3":
+                if len(parts) != 2:
+                    return HttpResponse("END Invalid option. Please try again.", content_type="text/plain")
+                return HttpResponse(_format_bill_summary(featured_bill), content_type="text/plain")
+
+        if choice == "3":
+            if len(parts) == 1:
                 return HttpResponse(
-                    "CON Vote on the featured bill\n1. Support\n2. Oppose\n3. Need more info",
+                    _format_bill_list_menu("Subscribe to a bill", active_bills, "Reply with 3*<number> to subscribe"),
                     content_type="text/plain",
                 )
 
-            vote_choice_map = {
-                "1": PollChoice.SUPPORT,
-                "2": PollChoice.OPPOSE,
-                "3": PollChoice.MORE_INFO,
-            }
-            vote_choice = vote_choice_map.get(parts[1])
+            bill = _pick_bill_from_choice(active_bills, parts[1])
+            if not bill:
+                return HttpResponse("END Invalid bill selection. Please try again.", content_type="text/plain")
+
+            create_subscription(bill, phone_number, "ussd")
+            return HttpResponse(f"END You are now subscribed to {bill.title}.", content_type="text/plain")
+
+        if choice == "4":
+            if not featured_bill:
+                return HttpResponse("END No featured bill available right now.", content_type="text/plain")
+
+            if len(parts) == 1:
+                return HttpResponse(_format_vote_menu(featured_bill), content_type="text/plain")
+
+            if len(parts) != 2:
+                return HttpResponse("END Invalid vote option.", content_type="text/plain")
+
+            vote_choice = _resolve_vote_choice(parts[1])
             if vote_choice is None:
                 return HttpResponse("END Invalid vote option.", content_type="text/plain")
 
             create_poll_response(featured_bill, phone_number, vote_choice)
             return HttpResponse("END Your vote has been recorded. Thank you.", content_type="text/plain")
+
+        if choice == "5":
+            return HttpResponse(
+                "END Bunge Mkononi USSD help\n"
+                "1: View bills and details\n"
+                "2: Featured bill details\n"
+                "3: Subscribe to a bill\n"
+                "4: Vote on featured bill\n"
+                "SMS: TRACK <bill id or title> to 22334\n"
+                "Dial *384*16250# to start again.",
+                content_type="text/plain",
+            )
 
         return HttpResponse("END Invalid option.", content_type="text/plain")
