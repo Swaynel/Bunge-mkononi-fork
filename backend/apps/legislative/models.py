@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from django.db import models
 from django.utils import timezone
 
@@ -186,6 +188,14 @@ class Bill(models.Model):
     class Meta:
         ordering = ["-is_hot", "-date_introduced", "title"]
 
+    if TYPE_CHECKING:
+        petition: Petition
+        county_stats: models.Manager["CountyStat"]
+        representative_votes: models.Manager["RepresentativeVote"]
+        poll_responses: models.Manager["PollResponse"]
+        subscriptions: models.Manager["Subscription"]
+        outbound_messages: models.Manager["OutboundMessage"]
+
     def __str__(self) -> str:
         return self.title
 
@@ -219,6 +229,9 @@ class Representative(models.Model):
     class Meta:
         ordering = ["name"]
 
+    if TYPE_CHECKING:
+        votes: models.Manager["RepresentativeVote"]
+
     def __str__(self) -> str:
         return self.name
 
@@ -234,6 +247,9 @@ class RepresentativeVote(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["representative", "bill"], name="unique_vote_per_representative_bill"),
         ]
+
+    if TYPE_CHECKING:
+        bill_id: str
 
     def __str__(self) -> str:
         return f"{self.representative.pk} -> {self.bill.pk}: {self.vote}"
@@ -293,9 +309,14 @@ class Subscription(models.Model):
             ),
         ]
 
+    if TYPE_CHECKING:
+        bill_id: str | None
+        outbound_messages: models.Manager["OutboundMessage"]
+
     def __str__(self) -> str:
-        if self.scope == SubscriptionScope.BILL and self.bill_id:
-            target = self.bill.pk
+        bill = self.bill
+        if self.scope == SubscriptionScope.BILL and bill is not None:
+            target = bill.pk
         elif self.scope == SubscriptionScope.ALL:
             target = "all-bills"
         else:
@@ -335,6 +356,10 @@ class OutboundMessage(models.Model):
             models.Index(fields=["recipient_phone_number"]),
             models.Index(fields=["message_type"]),
         ]
+
+    if TYPE_CHECKING:
+        bill_id: str | None
+        subscription_id: int | None
 
     def __str__(self) -> str:
         return f"{self.message_type}: {self.recipient_phone_number}"

@@ -14,6 +14,7 @@ from .document_processing import PDFDocumentProcessingError, analyze_pdf_documen
 from .africastalking import AfricaTalkingConfigurationError, AfricaTalkingError, send_sms, summarize_sms_response
 from .models import (
     Bill,
+    CountyStat,
     DocumentProcessingStatus,
     LogEventType,
     MessageLanguage,
@@ -103,7 +104,7 @@ SMS_COMMAND_ALIASES = {
 }
 
 
-LOCALIZED_TEXT = {
+LOCALIZED_TEXT: dict[MessageLanguage, dict[str, str]] = {
     MessageLanguage.EN: {
         "main_menu": (
             "CON Bunge Mkononi\n"
@@ -318,7 +319,10 @@ LOCALIZED_TEXT = {
 
 
 def _translate(language: str | None, key: str, **kwargs) -> str:
-    normalized = str(language or MessageLanguage.EN).lower()
+    try:
+        normalized = MessageLanguage((language or MessageLanguage.EN).lower())
+    except ValueError:
+        normalized = MessageLanguage.EN
     template_map = LOCALIZED_TEXT.get(normalized, LOCALIZED_TEXT[MessageLanguage.EN])
     template = template_map.get(key, LOCALIZED_TEXT[MessageLanguage.EN].get(key, key))
     return template.format(**kwargs)
@@ -333,6 +337,10 @@ def _mask_phone_number(phone_number: str) -> str:
 
 def _normalized_key(value: str) -> str:
     return slugify(" ".join((value or "").split()))
+
+
+def _bill_county_stats(bill: Bill) -> list[CountyStat]:
+    return list(CountyStat.objects.filter(bill=bill).order_by("-engagement_count", "county"))
 
 
 def _message_dedupe_key(*parts: str) -> str:
@@ -353,8 +361,11 @@ def _preferred_language_for_phone(phone_number: str) -> str:
 
 
 def _subscription_label(subscription: Subscription) -> str:
-    if subscription.scope == SubscriptionScope.BILL and subscription.bill_id:
-        return subscription.bill.title if subscription.bill_id else subscription.target_value
+    if subscription.scope == SubscriptionScope.BILL:
+        bill = subscription.bill
+        if bill is not None:
+            return bill.title
+        return subscription.target_value
     if subscription.scope == SubscriptionScope.ALL:
         return "all bills"
     return subscription.target_value or subscription.scope
@@ -364,7 +375,8 @@ def _subscription_matches_bill(subscription: Subscription, bill: Bill) -> bool:
     if subscription.scope == SubscriptionScope.ALL:
         return True
     if subscription.scope == SubscriptionScope.BILL:
-        return subscription.bill_id == bill.id
+        related_bill = subscription.bill
+        return related_bill is not None and related_bill.pk == bill.id
     if subscription.scope == SubscriptionScope.CATEGORY:
         return _normalized_key(subscription.target_value) == _normalized_key(bill.category)
     if subscription.scope == SubscriptionScope.SPONSOR:
@@ -372,7 +384,7 @@ def _subscription_matches_bill(subscription: Subscription, bill: Bill) -> bool:
     if subscription.scope == SubscriptionScope.COUNTY:
         bill_counties = {
             _normalized_key(str(county_stat.county))
-            for county_stat in bill.county_stats.all()
+            for county_stat in _bill_county_stats(bill)
             if str(county_stat.county).strip()
         }
         return _normalized_key(subscription.target_value) in bill_counties
@@ -384,7 +396,6 @@ def _subscription_queryset_for_bill(bill: Bill) -> list[Subscription]:
         Subscription.objects.select_related("bill")
         .filter(status=SubscriptionStatus.ACTIVE)
         .exclude(phone_number="")
-        .prefetch_related("bill__county_stats")
         .order_by("-created_at")
     )
     matched: list[Subscription] = []
@@ -415,7 +426,7 @@ def _upsert_subscription(
     cadence: str = SubscriptionFrequency.INSTANT,
     status: str = SubscriptionStatus.ACTIVE,
     consent_source: str = SubscriptionSource.API,
-) -> tuple[Subscription, bool]:
+) -> tuple[Subscription, bool, bool]:
     normalized_phone = normalize_kenyan_phone_number(phone_number) or phone_number.strip()
     normalized_language = language or _preferred_language_for_phone(normalized_phone) or MessageLanguage.EN
     normalized_target = target_value.strip()
@@ -454,17 +465,10 @@ def _upsert_subscription(
         if bill is not None and scope == SubscriptionScope.BILL:
             if status == SubscriptionStatus.ACTIVE and (created or previous_status == SubscriptionStatus.UNSUBSCRIBED):
                 Bill.objects.filter(pk=bill.pk).update(subscriber_count=F("subscriber_count") + 1)
-                bill.refresh_from_db(fields=["subscriber_count"])
             elif previous_status in {SubscriptionStatus.ACTIVE, SubscriptionStatus.PAUSED} and status == SubscriptionStatus.UNSUBSCRIBED:
                 Bill.objects.filter(pk=bill.pk, subscriber_count__gt=0).update(subscriber_count=F("subscriber_count") - 1)
-                bill.refresh_from_db(fields=["subscriber_count"])
-
-        subscription._previous_status = previous_status  # type: ignore[attr-defined]
-        subscription._was_reactivated = bool(
-            previous_status == SubscriptionStatus.UNSUBSCRIBED and status == SubscriptionStatus.ACTIVE
-        )  # type: ignore[attr-defined]
-
-        return subscription, created
+        reactivated = bool(previous_status == SubscriptionStatus.UNSUBSCRIBED and status == SubscriptionStatus.ACTIVE)
+        return subscription, created, reactivated
 
 
 def _subscription_status_message(subscription: Subscription) -> str:
@@ -587,7 +591,7 @@ def _build_petition_message(bill: Bill, language: str) -> str:
 
 
 def _build_county_message(bill: Bill, language: str) -> str:
-    county_stats = list(bill.county_stats.all().order_by("-engagement_count", "county"))
+    county_stats = _bill_county_stats(bill)
     if not county_stats:
         return f"{_translate(language, 'county_prefix')}: {bill.title}\nNo county impact data yet."
     lines = [f"{_translate(language, 'county_prefix')}: {bill.title}"]
@@ -769,20 +773,22 @@ def _update_subscription_state(
     if fields_to_update:
         subscription.save(update_fields=list(dict.fromkeys(fields_to_update + ["updated_at"])))
 
-    if subscription.bill_id and subscription.scope == SubscriptionScope.BILL:
+    bill = subscription.bill
+    if bill is not None and subscription.scope == SubscriptionScope.BILL:
         if previous_status == SubscriptionStatus.UNSUBSCRIBED and subscription.status == SubscriptionStatus.ACTIVE:
-            Bill.objects.filter(pk=subscription.bill_id).update(subscriber_count=F("subscriber_count") + 1)
+            Bill.objects.filter(pk=bill.pk).update(subscriber_count=F("subscriber_count") + 1)
         elif previous_status in {SubscriptionStatus.ACTIVE, SubscriptionStatus.PAUSED} and subscription.status == SubscriptionStatus.UNSUBSCRIBED:
-            Bill.objects.filter(pk=subscription.bill_id, subscriber_count__gt=0).update(subscriber_count=F("subscriber_count") - 1)
+            Bill.objects.filter(pk=bill.pk, subscriber_count__gt=0).update(subscriber_count=F("subscriber_count") - 1)
     return subscription
 
 
 def _subscription_action_log(action: str, phone_number: str, subscription: Subscription | None, metadata: dict | None = None) -> None:
     payload = dict(metadata or {})
+    bill = subscription.bill if subscription is not None else None
     payload.update(
         {
             "phoneNumber": _mask_phone_number(phone_number),
-            "billId": subscription.bill_id if subscription else payload.get("billId"),
+            "billId": bill.pk if bill is not None else payload.get("billId"),
             "scope": subscription.scope if subscription else payload.get("scope"),
             "targetValue": subscription.target_value if subscription else payload.get("targetValue"),
             "channel": subscription.channel if subscription else payload.get("channel"),
@@ -857,7 +863,7 @@ def _bill_matches_search_query(bill: Bill, query: str) -> bool:
     ]
     if any(search in _normalized_key(str(value)) for value in haystacks if str(value).strip()):
         return True
-    county_names = [str(stat.county) for stat in bill.county_stats.all()]
+    county_names = [str(stat.county) for stat in _bill_county_stats(bill)]
     return any(search in _normalized_key(county) for county in county_names)
 
 
@@ -865,7 +871,7 @@ def _bill_search_results(query: str, limit: int = 5) -> list[Bill]:
     search = (query or "").strip()
     if not search:
         return []
-    queryset = Bill.objects.select_related("petition").prefetch_related("county_stats")
+    queryset = Bill.objects.select_related("petition")
     matches: list[Bill] = []
     for bill in queryset:
         if _bill_matches_search_query(bill, search):
@@ -893,7 +899,7 @@ def queue_outbound_message(
         message_type,
         normalized_phone,
         bill.id if bill else "",
-        subscription.pk if subscription else "",
+        str(subscription.pk) if subscription else "",
         message,
         *(dedupe_parts or []),
     )
@@ -964,6 +970,9 @@ def dispatch_outbound_message(message_id: int | str) -> OutboundMessage | None:
     if outbound.scheduled_for and outbound.scheduled_for > timezone.now():
         return outbound
 
+    subscription = outbound.subscription
+    bill = outbound.bill
+
     try:
         outbound.status = OutboundMessageStatus.SENDING
         outbound.attempt_count += 1
@@ -995,15 +1004,15 @@ def dispatch_outbound_message(message_id: int | str) -> OutboundMessage | None:
             ]
         )
 
-        if outbound.subscription_id:
-            Subscription.objects.filter(pk=outbound.subscription_id).update(last_notified_at=timezone.now())
+        if subscription is not None:
+            Subscription.objects.filter(pk=subscription.pk).update(last_notified_at=timezone.now())
 
         record_system_log(
             LogEventType.MESSAGE_OUTBOUND,
             f"Sent {outbound.message_type} message to {_mask_phone_number(outbound.recipient_phone_number)}.",
             {
-                "billId": outbound.bill_id,
-                "subscriptionId": outbound.subscription_id,
+                "billId": bill.pk if bill is not None else None,
+                "subscriptionId": subscription.pk if subscription is not None else None,
                 "phoneNumber": _mask_phone_number(outbound.recipient_phone_number),
                 "messageType": outbound.message_type,
                 "providerMessageId": message_id,
@@ -1018,8 +1027,8 @@ def dispatch_outbound_message(message_id: int | str) -> OutboundMessage | None:
             LogEventType.MESSAGE_OUTBOUND,
             f"Failed to send {outbound.message_type} message: {exc}",
             {
-                "billId": outbound.bill_id,
-                "subscriptionId": outbound.subscription_id,
+                "billId": bill.pk if bill is not None else None,
+                "subscriptionId": subscription.pk if subscription is not None else None,
                 "phoneNumber": _mask_phone_number(outbound.recipient_phone_number),
                 "messageType": outbound.message_type,
                 "error": str(exc),
@@ -1111,10 +1120,10 @@ def _active_subscription_queryset(phone_number: str) -> list[Subscription]:
 
 def _build_digest_for_subscription(subscription: Subscription) -> str:
     language = subscription.language or MessageLanguage.EN
-    base_queryset = Bill.objects.select_related("petition").prefetch_related("county_stats")
+    base_queryset = Bill.objects.select_related("petition")
 
-    if subscription.scope == SubscriptionScope.BILL and subscription.bill_id:
-        bills = list(base_queryset.filter(pk=subscription.bill_id)[:1])
+    if subscription.scope == SubscriptionScope.BILL and subscription.bill is not None:
+        bills = list(base_queryset.filter(pk=subscription.bill.pk)[:1])
     elif subscription.scope == SubscriptionScope.CATEGORY:
         bills = list(base_queryset.filter(category__iexact=subscription.target_value).order_by("-updated_at")[:3])
     elif subscription.scope == SubscriptionScope.COUNTY:
@@ -1124,7 +1133,7 @@ def _build_digest_for_subscription(subscription: Subscription) -> str:
             for bill in base_queryset.order_by("-updated_at")
             if any(
                 _normalized_key(stat.county) == _normalized_key(county_name)
-                for stat in bill.county_stats.all()
+                for stat in _bill_county_stats(bill)
             )
         ][:3]
     elif subscription.scope == SubscriptionScope.SPONSOR:
@@ -1368,7 +1377,7 @@ def resolve_bill_from_message_id(message_id: str) -> Bill | None:
         return None
 
     outbound = OutboundMessage.objects.filter(provider_message_id=message_id).select_related("bill").first()
-    if outbound and outbound.bill_id:
+    if outbound and outbound.bill is not None:
         return outbound.bill
 
     for receipt in WebhookReceipt.objects.filter(event_type=WebhookEventType.SMS_DELIVERY_REPORT).order_by("-created_at"):
@@ -1459,7 +1468,14 @@ def _build_subscription_confirmation_sms(
     return "\n".join(lines)
 
 
-def _queue_subscription_confirmation_sms(subscription: Subscription, bill: Bill | None, created: bool, channel: str) -> None:
+def _queue_subscription_confirmation_sms(
+    subscription: Subscription,
+    bill: Bill | None,
+    created: bool,
+    channel: str,
+    *,
+    reactivated: bool = False,
+) -> None:
     if str(channel).strip().lower() != SubscriptionChannel.USSD:
         return
 
@@ -1481,7 +1497,7 @@ def _queue_subscription_confirmation_sms(subscription: Subscription, bill: Bill 
                 "confirmation",
                 channel,
                 str(created),
-                str(bool(getattr(subscription, "_was_reactivated", False))),
+                str(reactivated),
             ],
             metadata={
                 "billId": bill.id if bill else None,
@@ -1697,7 +1713,7 @@ def record_sms_inbound_message(payload: dict | None) -> dict:
         elif not target_value:
             return _response("invalid_bill", _translate(language, "invalid_bill"))
 
-        subscription, created = _upsert_subscription(
+        subscription, created, reactivated = _upsert_subscription(
             bill,
             phone_number,
             SubscriptionChannel.SMS,
@@ -1709,12 +1725,12 @@ def record_sms_inbound_message(payload: dict | None) -> dict:
             consent_source=SubscriptionSource.SMS,
         )
 
-        effective_created = created or bool(getattr(subscription, "_was_reactivated", False))
+        effective_created = created or reactivated
         _subscription_action_log(
             "subscribe",
             phone_number,
             subscription,
-            {"created": created, "reactivated": bool(getattr(subscription, "_was_reactivated", False))},
+            {"created": created, "reactivated": reactivated},
         )
         response_message = _translate(
             subscription.language,
@@ -1930,10 +1946,10 @@ def create_subscription(
     cadence: str = SubscriptionFrequency.INSTANT,
     status: str = SubscriptionStatus.ACTIVE,
     consent_source: str | None = None,
-) -> tuple[Subscription, bool]:
+) -> tuple[Subscription, bool, bool]:
     normalized_channel = str(channel).strip().lower()
     consent = consent_source or (SubscriptionSource.USSD if normalized_channel == SubscriptionChannel.USSD else SubscriptionSource.SMS)
-    subscription, created = _upsert_subscription(
+    subscription, created, reactivated = _upsert_subscription(
         bill,
         phone_number,
         normalized_channel,
@@ -1944,7 +1960,6 @@ def create_subscription(
         status=status,
         consent_source=consent,
     )
-    reactivated = bool(getattr(subscription, "_was_reactivated", False))
     effective_created = created or reactivated
 
     record_system_log(
@@ -1961,8 +1976,14 @@ def create_subscription(
             "quantity": 1 if effective_created else 0,
         },
     )
-    _queue_subscription_confirmation_sms(subscription, bill, effective_created, normalized_channel)
-    return subscription, effective_created
+    _queue_subscription_confirmation_sms(
+        subscription,
+        bill,
+        effective_created,
+        normalized_channel,
+        reactivated=reactivated,
+    )
+    return subscription, effective_created, reactivated
 
 
 def create_poll_response(bill: Bill, phone_number: str, choice: str) -> PollResponse:
@@ -1973,7 +1994,6 @@ def create_poll_response(bill: Bill, phone_number: str, choice: str) -> PollResp
             petition = getattr(bill, "petition", None)
             if petition is not None:
                 Petition.objects.filter(pk=petition.pk).update(signature_count=F("signature_count") + 1)
-                petition.refresh_from_db(fields=["signature_count"])
 
         record_system_log(
             LogEventType.VOTE,

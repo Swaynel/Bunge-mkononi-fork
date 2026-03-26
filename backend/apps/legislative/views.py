@@ -757,7 +757,7 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        subscription, created = create_subscription(
+        subscription, created, reactivated = create_subscription(
             bill,
             phone_number,
             channel,
@@ -769,7 +769,7 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
         )
         response_data = SubscriptionSerializer(subscription).data
         response_data["created"] = created
-        response_data["reactivated"] = bool(getattr(subscription, "_was_reactivated", False))
+        response_data["reactivated"] = reactivated
         return Response(response_data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
 
@@ -1188,7 +1188,7 @@ class UssdCallbackAPIView(APIView):
 
             option = detail_parts[0]
             if option == "1":
-                subscription, created_subscription = create_subscription(bill, phone_number, "ussd", language=language)
+                subscription, created_subscription, _ = create_subscription(bill, phone_number, "ussd", language=language)
                 return _subscription_confirmation(subscription, created_subscription)
 
             if option == "2":
@@ -1252,7 +1252,7 @@ class UssdCallbackAPIView(APIView):
             if route == "invalid" or bill is None or tail:
                 return _translate(language, "invalid_bill")
 
-            subscription, created_subscription = create_subscription(bill, phone_number, "ussd", language=language)
+            subscription, created_subscription, _ = create_subscription(bill, phone_number, "ussd", language=language)
             return _subscription_confirmation(subscription, created_subscription)
 
         def _handle_scope_subscription(
@@ -1285,7 +1285,7 @@ class UssdCallbackAPIView(APIView):
             if route == "invalid" or selected_value is None or tail:
                 return _translate(language, "invalid_option")
 
-            subscription, created_subscription = create_subscription(
+            subscription, created_subscription, _ = create_subscription(
                 None,
                 phone_number,
                 "ussd",
@@ -1410,7 +1410,7 @@ class UssdCallbackAPIView(APIView):
                     )
                 )
             if subchoice == "5":
-                subscription, created_subscription = create_subscription(
+                subscription, created_subscription, _ = create_subscription(
                     None,
                     phone_number,
                     "ussd",

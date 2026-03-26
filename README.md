@@ -1,52 +1,83 @@
-# 🇰🇪 Bunge Mkononi (Parliament in Your Pocket)
-Bunge Mkononi is a civic-tech platform designed to bridge the gap between the Kenyan Parliament and its citizens. It provides real-time tracking of bills, member accountability, and regional impact data, with a heavy focus on digital inclusion through Africa's Talking SMS and USSD integration.
+# Bunge Mkononi (Parliament in Your Pocket)
 
-## 🚀 Key Features
-1. Citizen DashboardLive Bill Tracking: A visual timeline showing the progress of bills from First Reading to Presidential Assent.Member Tracker: A transparency tool showing how specific MPs voted on key legislation.Participation Hub: A "Live Opinion Poll" allowing citizens to vote "Support" or "Oppose" on active bills.Regional Impact Map: Data visualization showing sentiment across different counties.
-2. Admin Command Center (Protected)Secure Access: Guarded by a dedicated authentication layer (AdminGuard).Legislative Management: Admins can transition bills through different stages.AT SMS Broadcaster: A one-click button to trigger mass SMS alerts to thousands of subscribers via Africa's Talking API.System Logs: Real-time monitoring of USSD hits and SMS dispatch status.
-3. Inclusive Offline Access (Africa's Talking)USSD (*384*16250#): Allows users without smartphones to browse bills, view details, subscribe, and vote.SMS (22334): Users can send keywords like TRACK [BillID] to receive automated status updates.🛠️ Frontend Technical StackFramework: Next.js 14+ (App Router)Styling: Tailwind CSS (Mobile-first, dark/light theme separation)Icons: Lucide ReactState Management: React Hooks (useState, useEffect)Animations: Framer Motion / CSS Transitions
+Bunge Mkononi is a civic-tech platform for tracking Kenyan legislation across web, SMS, and USSD. Citizens can follow bills, review summaries, vote, and subscribe to updates even on basic phones, while admins can manage legislative data, trigger scrapes, and monitor messaging delivery.
 
+## Key Features
 
-### 🔌 Integration Points
-The frontend now reads live data from the Django API and uses the scraper for bill population.
+- Citizen dashboard with live bill tracking, bill summaries, petition progress, county sentiment, and representative vote visibility.
+- Admin command center for bill status changes, scrape jobs, manual SMS broadcasts, and operational monitoring.
+- Offline participation through Africa's Talking SMS and USSD for subscriptions, voting, petition support, and bill lookups.
+- Messaging audit trail with queued outbound messages, webhook receipts, delivery reports, and admin metrics.
 
-### 🛠️ Installation & SetupClone the repo
-Git clone https://[github.com/your-username/bunge-mkononi.git](https://github.com/ANNGLORIOUS/Bunge-mkononi)
+## Installation and Setup
 
-### Install dependencies:Bashnpm install
-Run the development server:npm run dev
-Access Admin Panel:Navigate to /admin and sign in with a Django admin account for protected actions.
+### Frontend
 
-## 🐍 Django Backend
-The repo now includes a Django REST API in `backend/` backed by SQL storage. PostgreSQL is the default database for local development, and you can override the `DJANGO_DB_*` variables in `backend/.env.example` if needed.
+```bash
+git clone https://github.com/ANNGLORIOUS/Bunge-mkononi.git
+cd Bunge-mkononi
+npm install
+npm run dev
+```
+
+Access the admin UI at `/admin` and sign in with a Django admin or staff account for protected actions.
+
+## Django Backend
+
+The repo includes a Django REST API in `backend/` backed by SQL storage. PostgreSQL is the default database for local development, and you can override the `DJANGO_DB_*` variables in `backend/.env.example` if needed.
 
 The backend also includes a Render Blueprint at `render.yaml` so you can provision the API and a matching Postgres database from the same repo.
 
-### Bill document processing
-Bill detail pages now prefer structured text over a raw PDF iframe.
+### Backend Quick Start
+
+1. `cd backend`
+2. Make sure PostgreSQL is running and create the database once:
+
+   ```bash
+   createdb bunge_mkononi
+   ```
+
+3. `python3 -m venv .venv`
+4. `source .venv/bin/activate`
+5. `pip install -r requirements.txt`
+6. `python manage.py migrate`
+7. `python manage.py scrape_bills`
+8. `python manage.py runserver 8000`
+
+If the scraper returns no bills on your first run, the site will stay empty until Parliament data is available.
+
+### Bill Document Processing
+
+Bill detail pages prefer structured text over a raw PDF iframe.
 
 The backend pipeline:
+
 - downloads the bill PDF from the same Parliament source that the UI proxy serves
 - extracts text with `pdftotext` when the PDF already contains a text layer
 - falls back to local OCR for image-based PDFs when OCRmyPDF and its host dependencies are available
 - stores the extracted text and page structure on the `Bill` record
 
 Optional env vars:
+
 - `PDF_TEXT_MIN_WORDS` to tune when a PDF should be considered text-readable
 
 For image-only PDFs, install OCRmyPDF and its local OCR dependencies on the backend host.
 
 Backfill existing bills with:
+
 ```bash
 cd backend
 python manage.py process_bill_documents
 ```
 
-## 🌐 Frontend to Backend Wiring
-The Next.js frontend now reads live data from the Django API.
+## Frontend to Backend Wiring
 
-### Frontend env
+The frontend reads live data from the Django API.
+
+### Frontend Env
+
 Set this in a root `.env.local` for local development. In production, the frontend falls back to the Render backend URL if the variable is not set.
+
 ```bash
 # Local development
 NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api
@@ -55,33 +86,22 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000/api
 NEXT_PUBLIC_API_BASE_URL=https://bunge-mkononi.onrender.com/api
 ```
 
-### Live endpoints used by the UI
+### Live Endpoints Used by the UI
+
 - `GET /api/dashboard/`
 - `GET /api/bills/`
 - `GET /api/bills/<id>/`
-- `GET /api/representatives/?bill=<id>`
-- `GET /api/counties/?bill=<id>`
+- `GET /api/representatives/?billId=<id>`
+- `GET /api/counties/?billId=<id>`
+- `GET /api/bills/<id>/votes/`
+- `GET /api/bills/<id>/votes/summary/`
 - `POST /api/votes/`
 - `POST /api/bills/<id>/broadcast/`
 - `POST /api/scrape/`
 - `GET /api/scrape/history/`
 
-### Quick start
-1. `cd backend`
-2. Make sure PostgreSQL is running and create the database once:
-   ```bash
-   createdb bunge_mkononi
-   ```
-3. `python3 -m venv .venv`
-4. `source .venv/bin/activate`
-5. `pip install -r requirements.txt`
-6. `python manage.py migrate`
-7. `python manage.py scrape_bills`
-8. `python manage.py runserver 8000`
+### Render Deploy
 
-If the scraper returns no bills on your first run, the site will simply stay empty until parliament data is available.
-
-### Render deploy
 1. Push the repo to GitHub, then create a new Render Blueprint from `render.yaml`.
 2. Render will create the backend service plus a Postgres database.
 3. The app bootstraps migrations and static file collection on Render startup, so even a manually created service with the default Gunicorn start command can come up cleanly.
@@ -89,57 +109,148 @@ If the scraper returns no bills on your first run, the site will simply stay emp
 
 Render's free Postgres plan expires after 30 days, so upgrade the database if you want to keep data long term.
 
-### Africa's Talking SMS
-Set these in `backend/.env` or your shell before using the admin broadcast button:
+## Africa's Talking Messaging
+
+Set these in `backend/.env` or your shell before using messaging features:
+
 - `AFRICASTALKING_USERNAME`
 - `AFRICASTALKING_API_KEY`
 - `AFRICASTALKING_SENDER_ID`
 - `AFRICASTALKING_SMS_TIMEOUT`
 
-SMS commands:
-- `TRACK <bill id or bill title>` subscribes the phone number and returns the bill's current status summary.
-- `STATUS <bill id or bill title>` returns the latest bill status without creating a subscription.
-- Broadcast SMS now uses the bill's current status by default instead of a generic placeholder.
-- Subscribers are also pinged automatically whenever a bill status changes, whether the change comes from the admin screen or the scraper.
-- USSD subscriptions also trigger a confirmation SMS so the user gets a message after opting in.
+### SMS Features
 
-### Africa's Talking webhooks
+Inbound SMS supports bill lookups, subscriptions, watchlists, and self-service account controls.
+
+Supported commands:
+
+- `HELP` returns the command menu.
+- `TRACK <bill id or bill title>` subscribes the number to a bill and returns its latest status summary.
+- `TRACK CATEGORY <category>` creates a category watchlist.
+- `TRACK COUNTY <county>` creates a county watchlist.
+- `TRACK SPONSOR <sponsor>` creates a sponsor watchlist.
+- `TRACK ALL` subscribes the number to all-bills updates.
+- `STATUS <bill id or bill title>` returns the latest bill status without creating a subscription.
+- `SUMMARY <bill id or bill title>` returns a short bill brief.
+- `DOCUMENT <bill id or bill title>` returns the structured bill summary.
+- `SEARCH <term>` finds matching bills.
+- `IMPACT <bill id or bill title>` returns county impact information.
+- `TIMELINE <bill id or bill title>` returns the legislative timeline.
+- `VOTES <bill id or bill title>` returns representative vote totals.
+- `SIGN <bill id or bill title>` records support for the linked petition flow.
+- `LIST` shows the caller's active and paused subscriptions.
+- `LANG EN` or `LANG SW` switches between English and Kiswahili.
+- `PAUSE [subscription reference]`, `RESUME [subscription reference]`, and `STOP [subscription reference]` manage one or more existing subscriptions.
+
+Messaging behavior:
+
+- Broadcast SMS uses the bill's current status by default when no custom message is supplied.
+- Bill status changes automatically queue outbound alerts for matching instant and milestone subscribers, whether the change came from the admin UI or the scraper.
+- Inbound SMS processing is idempotent, so duplicate webhook deliveries reuse the stored response instead of creating duplicate side effects.
+- USSD-created subscriptions queue a confirmation SMS automatically.
+
+### USSD Features
+
+Configure your Africa's Talking USSD menu to post to `POST /api/ussd/`.
+
+The current menu flow supports:
+
+- `1` active bills with paginated browsing
+- `2` featured bill details
+- `3` watchlists
+- `4` voting on the featured bill
+- `5` help
+- `6` language switching
+- `7` my subscriptions
+- `0` exit or return to the main menu
+
+The watchlist flow supports:
+
+- following a specific bill
+- following a bill category
+- following a county
+- following a sponsor
+- following all bills
+- managing existing subscriptions from the same menu
+
+Bill detail menus include:
+
+- subscribe
+- vote
+- summary
+- key points
+- timeline
+- county impact
+- petition support
+
+Long bill titles are shortened automatically so paginated bill lists fit on USSD screens.
+
+### Webhooks and Delivery Tracking
+
 Configure these callback URLs in Africa's Talking:
+
 - Inbound SMS callback: `POST /api/sms/inbound/`
 - Delivery report callback: `POST /api/sms/delivery/`
 - USSD callback: `POST /api/ussd/`
 
-USSD menu flow:
-- `1` to browse active bills and open bill details
-- `2` to open the featured bill details menu
-- `3` to subscribe directly to a bill
-- `4` to vote on the featured bill
-- `8` to move to the next page of bills
-- `9` to go back to the previous page of bills
-- `5` for help
-- `0` to go back or exit the session
-- Bill detail menus include:
-  - `1` to subscribe
-  - `2` to vote
-  - `3` to read the summary
-  - `0` to return to the main menu
-  - Long bill titles are shortened automatically to fit USSD screens
+Messaging is audited through:
 
-The admin metrics page for these webhooks lives at `/admin/metrics`.
-Inbound SMS subscribers can text `TRACK <bill id or bill title>` to the shortcode you configure on the Africa's Talking side.
+- `OutboundMessage` records for queued, sent, failed, and skipped messages
+- `WebhookReceipt` records for idempotent SMS inbound, delivery report, and USSD processing
+- `SystemLog` entries for subscriptions, votes, broadcasts, delivery reports, consent changes, digests, and webhook activity
+- `GET /api/admin/metrics/` for callback URLs, subscription counts, delivery buckets, outbound queue health, and recent webhook receipts
+- `GET /api/outbound-messages/` and `GET /api/webhook-receipts/` for admin auditing
 
-### API surface
+### Queueing and Digest Jobs
+
+The messaging pipeline stores outbound work in the database before delivery, which makes retries and metrics easier to manage.
+
+- `python manage.py dispatch_outbound_messages --limit 50` dispatches queued outbound SMS records.
+- `python manage.py send_legislative_digests --limit 50` generates due daily and weekly digests, then attempts to dispatch queued messages.
+
+Subscriptions support:
+
+- channel tracking for `sms` and `ussd`
+- scope targeting for bill, category, county, sponsor, and all-bills watchlists
+- language preferences in English and Kiswahili
+- cadence values including instant, daily, weekly, and milestone
+- active, paused, and unsubscribed states
+
+## API Surface
+
+Public endpoints:
+
 - `GET /api/health/`
 - `GET /api/dashboard/`
 - `GET /api/bills/`
-- `GET /api/representatives/?billId=1`
+- `GET /api/bills/<id>/`
+- `GET /api/representatives/`
+- `GET /api/counties/`
+- `GET /api/bills/<bill_id>/votes/`
+- `GET /api/bills/<bill_id>/votes/summary/`
 - `POST /api/votes/`
 - `POST /api/track/`
+- `POST /api/subscriptions/`
 - `POST /api/sms/inbound/`
 - `POST /api/sms/delivery/`
 - `POST /api/ussd/`
-- `POST /api/bills/<id>/broadcast/`
 
-### Data model
+Admin and staff endpoints:
+
+- `POST /api/bills/<id>/broadcast/`
+- `POST /api/scrape/`
+- `GET /api/scrape/history/`
+- `POST /api/scrape/representatives/`
+- `POST /api/scrape/votes/`
+- `GET /api/admin/metrics/`
+- `GET /api/logs/`
+- `GET /api/subscriptions/`
+- `GET /api/outbound-messages/`
+- `GET /api/webhook-receipts/`
+
+## Data Model
+
 - `Bill`, `Petition`, `Representative`, `RepresentativeVote`
-- `CountyStat`, `PollResponse`, `Subscription`, `SystemLog`
+- `CountyStat`, `PollResponse`
+- `Subscription` with channel, scope, language, cadence, status, and consent metadata
+- `OutboundMessage`, `WebhookReceipt`, `SystemLog`

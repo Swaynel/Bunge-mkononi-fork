@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 from unittest.mock import patch
+from typing import Any, Protocol, cast
 
 from django.test import TestCase
 from rest_framework.test import APIRequestFactory
@@ -21,7 +22,21 @@ from .scrapers import upsert_bills
 from .services import create_subscription, update_bill_status
 
 
-class BillStatusNotificationTests(TestCase):
+class SupportsCommitCallbacks(Protocol):
+    def captureOnCommitCallbacks(self, *, execute: bool = False) -> Any: ...
+
+
+class CommitCallbacksMixin:
+    def capture_on_commit_callbacks(self, execute: bool = False) -> Any:
+        testcase = cast(SupportsCommitCallbacks, self)
+        return testcase.captureOnCommitCallbacks(execute=execute)
+
+
+def response_data(response: Any) -> Any:
+    return cast(Any, response).data
+
+
+class BillStatusNotificationTests(CommitCallbacksMixin, TestCase):
     def setUp(self):
         self.bill = Bill.objects.create(
             id="test-bill",
@@ -35,7 +50,7 @@ class BillStatusNotificationTests(TestCase):
 
     def test_update_bill_status_queues_automatic_sms_broadcast(self):
         with patch("apps.legislative.services.broadcast_bill_update") as broadcast_mock:
-            with self.captureOnCommitCallbacks(execute=True):
+            with self.capture_on_commit_callbacks(execute=True):
                 update_bill_status(
                     self.bill,
                     BillStatus.SECOND_READING,
@@ -147,7 +162,7 @@ class BillDocumentProcessingTests(TestCase):
 
             result = process_bill_document(self.bill, force=True)
 
-        self.bill.refresh_from_db()
+        self.bill = Bill.objects.get(pk=self.bill.pk)
         self.assertEqual(result["status"], "ready")
         self.assertEqual(self.bill.document_status, "ready")
         self.assertEqual(self.bill.document_method, "text")
@@ -186,12 +201,13 @@ class BillDocumentProcessingTests(TestCase):
 
         request = self.factory.get(f"/api/bills/{self.bill.pk}/")
         response = BillViewSet.as_view({"get": "retrieve"})(request, pk=self.bill.pk)
+        data = response_data(response)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["documentStatus"], "ready")
-        self.assertEqual(response.data["documentMethod"], "text")
-        self.assertIn("documentPages", response.data)
-        self.assertEqual(response.data["documentPages"][0]["pageNumber"], 1)
+        self.assertEqual(data["documentStatus"], "ready")
+        self.assertEqual(data["documentMethod"], "text")
+        self.assertIn("documentPages", data)
+        self.assertEqual(data["documentPages"][0]["pageNumber"], 1)
 
 
 class BillSearchTests(TestCase):
@@ -221,9 +237,10 @@ class BillSearchTests(TestCase):
             with self.subTest(field=field_name):
                 request = self.factory.get("/api/bills/", {"search": term})
                 response = BillViewSet.as_view({"get": "list"})(request)
+                data = response_data(response)
 
                 self.assertEqual(response.status_code, 200)
-                result_ids = [item["id"] for item in response.data["results"]]
+                result_ids = [item["id"] for item in data["results"]]
                 self.assertIn(self.bill.pk, result_ids)
 
 
@@ -263,19 +280,21 @@ class RepresentativeVotingApiTests(TestCase):
     def test_representative_list_filters_by_role_and_bill(self):
         request = self.factory.get("/api/representatives/", {"role": "MP", "billId": self.bill.pk})
         response = RepresentativeViewSet.as_view({"get": "list"})(request)
+        data = response_data(response)
 
         self.assertEqual(response.status_code, 200)
-        result_ids = [item["id"] for item in response.data["results"]]
+        result_ids = [item["id"] for item in data["results"]]
         self.assertEqual(result_ids, [self.mp.id])
 
     def test_bill_votes_endpoint_filters_and_enriches_representatives(self):
         request = self.factory.get(f"/api/bills/{self.bill.pk}/votes/", {"vote": "Yes"})
         response = BillVotesAPIView.as_view()(request, bill_id=self.bill.pk)
+        data = response_data(response)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["billId"], self.bill.pk)
-        self.assertEqual(response.data["totalVotes"], 1)
-        vote = response.data["votes"][0]
+        self.assertEqual(data["billId"], self.bill.pk)
+        self.assertEqual(data["totalVotes"], 1)
+        vote = data["votes"][0]
         self.assertEqual(vote["vote"], "Yes")
         self.assertEqual(vote["representative"]["role"], "MP")
         self.assertEqual(vote["representative"]["county"], "Nairobi")
@@ -283,15 +302,16 @@ class RepresentativeVotingApiTests(TestCase):
     def test_bill_vote_summary_endpoint_aggregates_by_county_and_party(self):
         request = self.factory.get(f"/api/bills/{self.bill.pk}/votes/summary/")
         response = BillVoteSummaryAPIView.as_view()(request, bill_id=self.bill.pk)
+        data = response_data(response)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["billId"], self.bill.pk)
-        self.assertEqual(response.data["yes"], 1)
-        self.assertEqual(response.data["no"], 1)
-        self.assertEqual(response.data["abstain"], 0)
-        self.assertEqual(response.data["byCounty"][0]["county"], "Nairobi")
-        self.assertIn("UDA", response.data["byParty"])
-        self.assertIn("ODM", response.data["byParty"])
+        self.assertEqual(data["billId"], self.bill.pk)
+        self.assertEqual(data["yes"], 1)
+        self.assertEqual(data["no"], 1)
+        self.assertEqual(data["abstain"], 0)
+        self.assertEqual(data["byCounty"][0]["county"], "Nairobi")
+        self.assertIn("UDA", data["byParty"])
+        self.assertIn("ODM", data["byParty"])
 
 
 class RepresentativeScraperParsingTests(TestCase):
@@ -375,7 +395,7 @@ class RepresentativeScraperParsingTests(TestCase):
         self.assertEqual(fetch_mock.call_args_list[1].args[0], fallback_url)
 
 
-class UssdMenuTests(TestCase):
+class UssdMenuTests(CommitCallbacksMixin, TestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
         self.bills = []
@@ -413,11 +433,13 @@ class UssdMenuTests(TestCase):
         bill = self.bills[0]
 
         with patch("apps.legislative.services.send_sms") as send_sms_mock:
-            with self.captureOnCommitCallbacks(execute=True):
-                subscription, created = create_subscription(bill, "+254700000000", "ussd")
+            with self.capture_on_commit_callbacks(execute=True):
+                subscription, created, reactivated = create_subscription(bill, "+254700000000", "ussd")
 
         self.assertTrue(created)
-        self.assertEqual(subscription.bill_id, bill.pk)
+        self.assertFalse(reactivated)
+        self.assertIsNotNone(subscription.bill)
+        self.assertEqual(subscription.bill.pk, bill.pk)
         send_sms_mock.assert_called_once()
         message, recipients = send_sms_mock.call_args.args[:2]
         self.assertIn(bill.title, message)
@@ -428,7 +450,7 @@ class UssdMenuTests(TestCase):
         request = self.factory.post("/api/ussd/", {"text": "3*5", "phoneNumber": "+254700000000"}, format="json")
 
         with patch("apps.legislative.services.send_sms") as send_sms_mock:
-            with self.captureOnCommitCallbacks(execute=True):
+            with self.capture_on_commit_callbacks(execute=True):
                 response = UssdCallbackAPIView.as_view()(request)
 
         body = response.content.decode()
