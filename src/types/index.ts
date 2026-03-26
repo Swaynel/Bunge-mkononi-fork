@@ -11,6 +11,7 @@ export type VoteChoice = 'Yes' | 'No' | 'Abstain';
 export type CountySentiment = 'Support' | 'Oppose' | 'Mixed';
 export type SubscriptionChannel = 'sms' | 'ussd';
 export type RepresentativeRole = 'MP' | 'MCA' | 'Senator';
+export type RepresentativeScrapeTarget = 'all' | 'MP' | 'Senator';
 export type BillDocumentStatus = 'unavailable' | 'needs_ocr' | 'ready' | 'failed';
 export type BillDocumentMethod = 'text' | 'ocr';
 
@@ -235,6 +236,46 @@ export interface ScrapeProcessedBill {
   action: 'created' | 'updated';
   sponsor?: string;
 }
+
+export interface RepresentativeScrapeProcessedMember {
+  id: string | number;
+  name: string;
+  action: 'created' | 'updated';
+}
+
+export interface RepresentativeScrapeRoleSummary {
+  role: Exclude<RepresentativeScrapeTarget, 'all'>;
+  url: string;
+  membersFound: number;
+  pagesFetched: number;
+  created: number;
+  updated: number;
+  processed: RepresentativeScrapeProcessedMember[];
+  errors: string[];
+}
+
+export interface RepresentativeScrapeAllSummary {
+  role: 'all';
+  membersFound: {
+    MP: number;
+    Senator: number;
+  };
+  created: {
+    MP: number;
+    Senator: number;
+  };
+  updated: {
+    MP: number;
+    Senator: number;
+  };
+  pagesFetched: {
+    MP: number;
+    Senator: number;
+  };
+  errors: string[];
+}
+
+export type RepresentativeScrapeSummary = RepresentativeScrapeAllSummary | RepresentativeScrapeRoleSummary;
 
 export interface SmsWebhookCallbackUrls {
   ussd: string;

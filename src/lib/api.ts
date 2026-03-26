@@ -11,6 +11,8 @@ import {
   PaginatedResponse,
   PollChoice,
   Representative,
+  RepresentativeScrapeSummary,
+  RepresentativeScrapeTarget,
   ScrapeSummary,
   SubscriptionChannel,
   SystemLog,
@@ -317,6 +319,13 @@ export async function broadcastBill(id: string, message?: string) {
 
 export async function runScrape(payload: { url?: string; timeout?: number } = {}) {
   return requestJson<ScrapeSummary>('/scrape/', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function runRepresentativeScrape(payload: { role?: RepresentativeScrapeTarget; url?: string; timeout?: number } = {}) {
+  return requestJson<RepresentativeScrapeSummary>('/scrape/representatives/', {
     method: 'POST',
     body: JSON.stringify(payload),
   });

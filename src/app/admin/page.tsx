@@ -24,14 +24,25 @@ import {
   hasStoredAdminCredentials,
   listBills,
   listSystemLogs,
+  runRepresentativeScrape,
   runScrape,
   saveAdminCredentials,
   updateBill,
 } from '@/lib/api';
-import { Bill, ScrapeSummary, SystemLog } from '@/types';
+import type {
+  Bill,
+  RepresentativeScrapeSummary,
+  RepresentativeScrapeTarget,
+  ScrapeSummary,
+  SystemLog,
+} from '@/types';
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat('en-US').format(value);
+}
+
+function formatPageCount(value: number) {
+  return `${formatNumber(value)} page${value === 1 ? '' : 's'}`;
 }
 
 function describeProcessedBills(processedBills: ScrapeSummary['processedBills']) {
@@ -40,6 +51,26 @@ function describeProcessedBills(processedBills: ScrapeSummary['processedBills'])
   }
 
   return processedBills.map((bill) => `${bill.title} (${bill.action})`).join('; ');
+}
+
+function describeRepresentativeScrape(summary: RepresentativeScrapeSummary) {
+  const errorSuffix =
+    summary.errors.length > 0
+      ? ` ${summary.errors.length} error${summary.errors.length === 1 ? '' : 's'} reported.`
+      : '';
+
+  if (summary.role === 'all') {
+    return (
+      `Representative scrape finished. `
+      + `MPs: ${formatNumber(summary.membersFound.MP)} found, ${formatNumber(summary.created.MP)} created, ${formatNumber(summary.updated.MP)} updated across ${formatPageCount(summary.pagesFetched.MP)}. `
+      + `Senators: ${formatNumber(summary.membersFound.Senator)} found, ${formatNumber(summary.created.Senator)} created, ${formatNumber(summary.updated.Senator)} updated across ${formatPageCount(summary.pagesFetched.Senator)}.${errorSuffix}`
+    );
+  }
+
+  return (
+    `Representative scrape finished for ${summary.role}. `
+    + `${formatNumber(summary.membersFound)} found, ${formatNumber(summary.created)} created, ${formatNumber(summary.updated)} updated across ${formatPageCount(summary.pagesFetched)}.${errorSuffix}`
+  );
 }
 
 function isAuthError(error: unknown) {
@@ -70,15 +101,24 @@ export default function AdminPanel() {
   const [credentialForm, setCredentialForm] = useState({ username: '', password: '' });
   const [adminUsername, setAdminUsername] = useState<string | null>(null);
   const [credentialsLoaded, setCredentialsLoaded] = useState(false);
+  const [isRepresentativeScraping, setIsRepresentativeScraping] = useState(false);
+  const [representativeScrapeTarget, setRepresentativeScrapeTarget] = useState<RepresentativeScrapeTarget>('all');
 
   const isBillsLoading = !billsLoaded;
   const isLogsLoading = !logsLoaded;
+  const isScrapeRunning = isScraping || isRepresentativeScraping;
   const canUseProtectedActions = Boolean(adminUsername);
   const connectionStatus = !credentialsLoaded
     ? 'Checking saved credentials...'
     : canUseProtectedActions
       ? `Connected as ${adminUsername}`
       : 'Not connected';
+  const representativeScrapeProgressLabel =
+    representativeScrapeTarget === 'all'
+      ? 'all representatives'
+      : representativeScrapeTarget === 'MP'
+      ? 'MPs'
+      : 'Senators';
 
   const refreshBills = async () => {
     const payload = await listBills({ ordering: '-date_introduced' });
@@ -331,6 +371,38 @@ export default function AdminPanel() {
     }
   };
 
+  const runRepresentativeScrapeJob = async () => {
+    if (!canUseProtectedActions) {
+      setError('Add Django admin credentials above before running a representative scrape.');
+      return;
+    }
+
+    setIsRepresentativeScraping(true);
+    setError(null);
+    setLogsLoaded(false);
+
+    try {
+      const summary = await runRepresentativeScrape({ role: representativeScrapeTarget });
+      setSystemNote(describeRepresentativeScrape(summary));
+      await refreshLogs();
+    } catch (scrapeError) {
+      console.error(scrapeError);
+      if (isAuthError(scrapeError)) {
+        clearAdminCredentials();
+        setAdminUsername(null);
+      }
+      const message = getActionErrorMessage(
+        scrapeError,
+        'Representative scraping failed. Check the backend logs for details.',
+      );
+      setSystemNote(message);
+      setError(message);
+      setLogsLoaded(true);
+    } finally {
+      setIsRepresentativeScraping(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 flex">
       <aside className="w-64 border-r border-slate-800 p-6 space-y-8 hidden md:block">
@@ -361,15 +433,41 @@ export default function AdminPanel() {
             <p className="text-slate-400 text-sm">Manage live legislative data, broadcasts, and scrape jobs.</p>
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap items-end gap-3">
             <button
               onClick={runLiveScrape}
-              disabled={isScraping || !canUseProtectedActions}
+              disabled={isScrapeRunning || !canUseProtectedActions}
               className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-500 transition disabled:opacity-60"
             >
               {isScraping ? <RefreshCcw size={16} className="animate-spin" /> : <Sparkles size={16} />}
               {isScraping ? 'Scraping...' : 'Run Live Scrape'}
             </button>
+            <div className="flex items-end gap-2 rounded-xl border border-slate-700 bg-slate-800/80 px-3 py-2">
+              <label className="space-y-1">
+                <span className="block text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                  Representative role
+                </span>
+                <select
+                  value={representativeScrapeTarget}
+                  onChange={(event) => setRepresentativeScrapeTarget(event.target.value as RepresentativeScrapeTarget)}
+                  disabled={isScrapeRunning || !canUseProtectedActions}
+                  className="w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-sm font-semibold text-slate-100 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label="Representative scrape target role"
+                >
+                  <option value="all">All representatives</option>
+                  <option value="MP">MPs</option>
+                  <option value="Senator">Senators</option>
+                </select>
+              </label>
+              <button
+                onClick={runRepresentativeScrapeJob}
+                disabled={isScrapeRunning || !canUseProtectedActions}
+                className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-4 py-2 text-sm font-bold text-white hover:bg-sky-500 transition disabled:opacity-60"
+              >
+                {isRepresentativeScraping ? <RefreshCcw size={16} className="animate-spin" /> : <Users size={16} />}
+                {isRepresentativeScraping ? `Scraping ${representativeScrapeProgressLabel}...` : 'Run Representative Scrape'}
+              </button>
+            </div>
             <div className="bg-slate-800 px-4 py-2 rounded-lg border border-slate-700">
               <p className="text-[10px] text-slate-500 font-bold uppercase">Connection</p>
               <p className={`font-mono font-bold ${canUseProtectedActions ? 'text-emerald-400' : 'text-amber-400'}`}>
