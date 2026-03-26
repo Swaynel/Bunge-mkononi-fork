@@ -14,78 +14,94 @@ export default function BillCard({ bill, petition }: Props) {
   const livePetition = petition ?? bill.petition ?? undefined;
   const progressPercent = livePetition && livePetition.goal > 0 ? (livePetition.signatureCount / livePetition.goal) * 100 : 0;
   const pdfUrl = getBillPdfSourceUrl(bill);
+  const introducedAt = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(new Date(bill.dateIntroduced));
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-md transition flex flex-col h-full">
-      <div className="p-5 flex-1">
-        <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
-          <span className="px-2 py-1 bg-blue-100 text-blue-700 text-xs font-bold rounded uppercase tracking-wider">
-            {bill.category}
-          </span>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+    <article className="group flex h-full flex-col overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white shadow-sm transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_20px_40px_-30px_rgba(37,99,235,0.22)]">
+      <div className="h-1 bg-gradient-to-r from-brand via-accent to-sky-400" />
+      <div className="flex-1 p-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full bg-brand-soft px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-brand-strong">
+              {bill.category}
+            </span>
+            {bill.isHot && (
+              <span className="rounded-full bg-accent-soft px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-accent">
+                Hot
+              </span>
+            )}
             {pdfUrl && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-sky-100 bg-sky-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-sky-700">
+              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-600">
                 <FileText size={12} />
                 PDF available
               </span>
             )}
-            <span className="text-sm font-medium text-slate-500">{bill.status}</span>
           </div>
+          <span className="text-xs font-medium uppercase tracking-[0.22em] text-slate-500">{introducedAt}</span>
         </div>
+
         {bill.sponsor && (
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">
+          <p className="mt-4 text-xs font-semibold uppercase tracking-[0.26em] text-slate-500">
             Sponsored by {bill.sponsor}
           </p>
         )}
-        
-        {/* Title links to the detail page */}
-        <Link href={`/bill/${bill.id}`}>
-          <h3 className="text-lg font-bold text-slate-900 mb-2 hover:text-indigo-600 transition cursor-pointer">
+
+        <Link href={`/bills/${bill.id}`} className="mt-4 block">
+          <h3 className="text-xl font-semibold leading-snug text-slate-900 transition group-hover:text-brand-strong">
             {bill.title}
           </h3>
         </Link>
-        
-        <p className="text-slate-600 text-sm mb-4 line-clamp-2">{bill.summary}</p>
+
+        <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-700">{bill.summary}</p>
 
         {livePetition && (
-          <div className="space-y-3">
-            <div className="flex justify-between text-xs font-semibold">
-              <span className="text-slate-500">Signatures</span>
-              <span className="text-orange-600">
+          <div className="mt-5 rounded-[1.25rem] border border-slate-200 bg-slate-50 p-4">
+            <div className="flex items-center justify-between gap-3 text-xs font-semibold">
+              <span className="uppercase tracking-[0.22em] text-slate-500">Signature goal</span>
+              <span className="text-brand-strong">
                 {livePetition.signatureCount.toLocaleString()} / {livePetition.goal.toLocaleString()}
               </span>
             </div>
-            <div className="w-full bg-slate-100 h-2 rounded-full">
-              <div 
-                className="bg-orange-500 h-2 rounded-full transition-all" 
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-brand via-accent to-sky-400"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
           </div>
         )}
       </div>
-      
-      <div className="bg-slate-50 p-4 border-t border-slate-200 flex gap-2">
-        {/* Primary Action: View Details */}
-        <Link href={`/bill/${bill.id}`} className="flex-1 rounded-lg bg-indigo-600 text-white py-2 text-center text-sm font-semibold hover:bg-indigo-700 transition">
-          View Details
+
+      <div className="grid grid-cols-2 gap-3 border-t border-slate-100 bg-slate-50/80 p-4">
+        <Link
+          href={`/bills/${bill.id}`}
+          className="inline-flex items-center justify-center rounded-full bg-brand px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-strong"
+        >
+          Open bill
         </Link>
-        
+
         {bill.parliamentUrl ? (
           <a
             href={bill.parliamentUrl}
             target="_blank"
             rel="noreferrer"
-            className="flex-1 bg-white border border-slate-300 text-slate-700 py-2 rounded-lg text-sm font-semibold hover:bg-slate-50 transition flex items-center justify-center gap-2"
+            className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-brand/20 hover:text-brand-strong"
           >
-            Official Page <ArrowUpRight size={14} />
+            Official page <ArrowUpRight size={14} />
           </a>
         ) : (
-          <button className="flex-1 bg-white border border-slate-300 text-slate-700 py-2 rounded-lg text-sm font-semibold hover:bg-slate-50 transition">
-            Track via SMS
-          </button>
+          <Link
+            href={`/bills/${bill.id}/participation`}
+            className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-brand/20 hover:text-brand-strong"
+          >
+            Participate
+          </Link>
         )}
       </div>
-    </div>
+    </article>
   );
 }

@@ -106,9 +106,7 @@ export default function ParticipationHub({
       if (choice === 'support') {
         setIsIncrementing(true);
         setSignatureCount((current) =>
-          typeof response.petitionSignatureCount === 'number'
-            ? response.petitionSignatureCount
-            : current + 1,
+          typeof response.petitionSignatureCount === 'number' ? response.petitionSignatureCount : current + 1,
         );
         setTimeout(() => setIsIncrementing(false), 300);
       }
@@ -167,69 +165,77 @@ export default function ParticipationHub({
   };
 
   return (
-    <div className="space-y-6 mt-12">
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center justify-between shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-orange-100 rounded-lg">
-            <Users className="text-orange-600" size={20} />
-          </div>
-          <div>
-            <p className="text-xs font-bold text-slate-500 uppercase tracking-tight">Live Support</p>
-            <p
-              className={`text-2xl font-black text-slate-900 transition-all duration-300 ${
-                isIncrementing ? 'scale-110 text-emerald-600' : 'scale-100'
-              }`}
-            >
-              {signatureCount.toLocaleString()}
-            </p>
-          </div>
-        </div>
-        <div className="flex -space-x-2">
-          {[1, 2, 3, 4].map((i) => (
-            <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-400">
-              {String.fromCharCode(64 + i)}
+    <div className="mt-12 space-y-6">
+      <div className="rounded-[2rem] border border-slate-200 bg-surface/95 p-5 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand-strong">
+              <Users size={20} />
             </div>
-          ))}
-          <div className="w-8 h-8 rounded-full border-2 border-white bg-indigo-600 flex items-center justify-center text-[10px] font-bold text-white">
-            +12
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-slate-500">Live support</p>
+              <p
+                className={`text-3xl font-semibold tracking-tight text-foreground transition duration-300 ${
+                  isIncrementing ? 'scale-110 text-brand-strong' : 'scale-100'
+                }`}
+              >
+                {signatureCount.toLocaleString()}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex -space-x-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-surface bg-slate-200 text-[10px] font-bold text-slate-500"
+              >
+                {String.fromCharCode(64 + i)}
+              </div>
+            ))}
+            <div className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-surface bg-brand text-[10px] font-bold text-white">
+              +12
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm min-h-87.5 flex flex-col justify-center">
-          <h3 className="text-lg font-bold flex items-center gap-2 mb-4">
-            <Vote className="text-indigo-600" /> Public Opinion Poll
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.92fr)]">
+        <div className="rounded-[2rem] border border-slate-200 bg-surface/95 p-6 shadow-sm">
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+            <Vote className="text-brand-strong" size={18} />
+            Public opinion poll
           </h3>
 
-          <div className="grid grid-cols-3 gap-3 mb-6 text-center">
-            <div className="rounded-xl bg-emerald-50 p-3">
-              <p className="text-[10px] uppercase font-black text-emerald-700">Support</p>
-              <p className="text-lg font-black text-emerald-700">{polling.yes}</p>
+          <div className="mt-5 grid grid-cols-3 gap-3 text-center">
+            <div className="rounded-[1.25rem] bg-brand-soft p-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-strong">Support</p>
+              <p className="mt-1 text-lg font-semibold text-brand-strong">{polling.yes}</p>
             </div>
-            <div className="rounded-xl bg-rose-50 p-3">
-              <p className="text-[10px] uppercase font-black text-rose-700">Oppose</p>
-              <p className="text-lg font-black text-rose-700">{polling.no}</p>
+            <div className="rounded-[1.25rem] bg-rose-50 p-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-rose-700">Oppose</p>
+              <p className="mt-1 text-lg font-semibold text-rose-700">{polling.no}</p>
             </div>
-            <div className="rounded-xl bg-amber-50 p-3">
-              <p className="text-[10px] uppercase font-black text-amber-700">Need info</p>
-              <p className="text-lg font-black text-amber-700">{polling.undecided}</p>
+            <div className="rounded-[1.25rem] bg-amber-50 p-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-amber-700">Need info</p>
+              <p className="mt-1 text-lg font-semibold text-amber-700">{polling.undecided}</p>
             </div>
           </div>
 
           {!hasVoted ? (
-            <div className="animate-in fade-in duration-500">
-              <p className="text-sm text-slate-500 mb-6">
-                Do you support the clauses in {billTitle}? Your vote helps inform your representative.
+            <div className="mt-6 animate-in fade-in duration-500">
+              <p className="text-sm leading-6 text-slate-500">
+                Do you support the clauses in {billTitle}? Your response helps inform the public record and the next
+                citizen action.
               </p>
-              <div className="space-y-3">
+              <div className="mt-5 space-y-3">
                 {OPTIONS.map((option) => (
                   <button
                     key={option.choice}
                     type="button"
                     onClick={() => handleVote(option.label, option.choice)}
                     disabled={isSubmitting}
-                    className="w-full text-left p-4 rounded-xl border border-slate-200 hover:border-indigo-600 hover:bg-indigo-50 transition-all font-semibold text-slate-700 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full rounded-[1.25rem] border border-slate-200 bg-white px-4 py-4 text-left text-sm font-semibold text-slate-700 transition hover:border-brand/20 hover:bg-brand-soft/30 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isSubmitting ? 'Submitting your vote...' : option.label}
                   </button>
@@ -238,90 +244,85 @@ export default function ParticipationHub({
               {error && <p className="mt-4 text-sm text-rose-600">{error}</p>}
             </div>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center animate-in zoom-in duration-300">
-              <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mb-4 shadow-lg shadow-emerald-100">
+            <div className="mt-8 flex flex-col items-center justify-center rounded-[1.75rem] border border-brand/15 bg-brand-soft/60 px-6 py-10 text-center animate-in zoom-in duration-300">
+              <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-brand/20">
                 <CheckCircle size={40} />
               </div>
-              <h4 className="text-2xl font-black text-slate-900">Response Shared!</h4>
-              <p className="text-sm text-slate-500 mt-2">
-                You chose: <span className="font-bold text-indigo-600">{votedOption}</span>
+              <h4 className="text-2xl font-semibold text-foreground">Response shared</h4>
+              <p className="mt-2 text-sm text-slate-500">
+                You chose <span className="font-semibold text-brand-strong">{votedOption}</span>
               </p>
               <button
                 onClick={() => setHasVoted(false)}
-                className="mt-6 text-xs font-bold text-slate-400 hover:text-indigo-600 underline underline-offset-4"
+                className="mt-6 text-xs font-bold uppercase tracking-[0.25em] text-slate-400 underline underline-offset-4 transition hover:text-brand-strong"
               >
-                Edit my response
+                Edit response
               </button>
             </div>
           )}
         </div>
 
-        <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-xl flex flex-col justify-between">
-          <div>
-            <h3 className="text-lg font-bold flex items-center gap-2 mb-4">
-              <Phone className="text-emerald-400" /> Offline Participation
-            </h3>
-            <p className="text-slate-400 text-sm mb-6">
-              Using Africa&apos;s Talking USSD and SMS APIs to ensure every Kenyan&apos;s voice is heard, regardless of internet access.
-            </p>
+        <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+          <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
+            <Phone className="text-brand" size={18} />
+            Offline participation
+          </h3>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            SMS and USSD keep this bill available to people on basic phones and weaker networks.
+          </p>
+
+          <div className="mt-6 space-y-3">
+            <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">USSD</p>
+              <p className="mt-2 font-mono text-lg font-semibold text-foreground">*384*16250#</p>
+              <p className="mt-2 text-xs text-slate-600">Open the menu and subscribe from any phone.</p>
+            </div>
+
+            <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">SMS</p>
+              <p className="mt-2 font-mono text-lg font-semibold text-foreground">TRACK {billId}</p>
+              <p className="mt-2 text-xs text-slate-600">Send your number to start receiving bill updates.</p>
+            </div>
           </div>
 
-          <div className="space-y-4">
-            <div className="p-4 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition">
-              <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">Global USSD Code</p>
-              <p className="text-2xl font-mono text-emerald-400 mt-1 font-bold">*384*16250#</p>
+          <form onSubmit={handleSubscriptionSubmit} className="mt-6 space-y-3">
+            <label className="block text-sm font-semibold text-foreground" htmlFor={`phone-${billId}`}>
+              Subscribe with your phone number
+            </label>
+            <div className="flex gap-2">
+              <input
+                id={`phone-${billId}`}
+                value={phoneNumber}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setPhoneNumber(formatKenyanPhoneNumber(e.target.value))}
+                inputMode="tel"
+                autoComplete="tel"
+                placeholder="0712 345 678"
+                className="flex-1 rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3 text-sm text-foreground outline-none placeholder:text-slate-400 focus:border-brand/40 focus:ring-4 focus:ring-brand/10"
+              />
+              <button
+                type="submit"
+                disabled={isSubscribing}
+                className="rounded-[1.25rem] bg-brand px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubscribing ? 'Saving...' : 'Subscribe'}
+              </button>
             </div>
+            <p className="text-[10px] font-medium uppercase tracking-[0.3em] text-slate-500">
+              By subscribing, you consent to receive bill updates via SMS.
+            </p>
+          </form>
 
-            <div className="p-4 bg-white/5 rounded-xl border border-white/10 hover:bg-white/10 transition">
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="text-[10px] text-slate-500 uppercase font-black tracking-widest">SMS Gateway</p>
-                  <p className="text-sm mt-1">
-                    Text <span className="font-bold text-emerald-400">TRACK {billId}</span> to <span className="font-bold text-emerald-400">22334</span>
-                  </p>
-                </div>
-                <MessageSquare size={20} className="text-slate-600" />
+          <div className="mt-4 min-h-[2.5rem]">
+            {subscriptionMessage && (
+              <div className="inline-flex items-center gap-2 rounded-[1.25rem] bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+                <CheckCircle size={16} /> {subscriptionMessage}
               </div>
-            </div>
-
-            <form onSubmit={handleSubscriptionSubmit} className="p-4 bg-emerald-500/10 rounded-xl border border-emerald-400/20 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] text-emerald-200/80 uppercase font-black tracking-widest">Bill Subscription</p>
-                  <p className="text-sm text-slate-200 mt-1">
-                    Add your number and we&apos;ll send this bill&apos;s broadcast updates straight to your phone.
-                  </p>
-                </div>
-                <Users size={18} className="text-emerald-300/80 shrink-0 mt-0.5" />
+            )}
+            {subscriptionError && (
+              <div className="inline-flex items-center gap-2 rounded-[1.25rem] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+                <MessageSquare size={16} /> {subscriptionError}
               </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <input
-                  type="tel"
-                  inputMode="tel"
-                  autoComplete="tel-national"
-                  value={phoneNumber}
-                  onChange={(event: ChangeEvent<HTMLInputElement>) => setPhoneNumber(formatKenyanPhoneNumber(event.target.value))}
-                  placeholder="0712 345 678"
-                  className="flex-1 rounded-xl border border-white/10 bg-slate-950/30 px-4 py-3 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-emerald-400/70"
-                />
-                <button
-                  type="submit"
-                  disabled={isSubscribing}
-                  className="inline-flex items-center justify-center rounded-xl bg-emerald-500 px-4 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {isSubscribing ? 'Saving...' : 'Subscribe'}
-                </button>
-              </div>
-
-              <p className="text-[11px] text-slate-400">
-                Kenyan numbers auto-format as you type. We only use this number for bill alerts from this tracker, and
-                your subscription is tied to {billTitle}.
-              </p>
-
-              {subscriptionMessage && <p className="text-sm font-medium text-emerald-300">{subscriptionMessage}</p>}
-              {subscriptionError && <p className="text-sm font-medium text-rose-300">{subscriptionError}</p>}
-            </form>
+            )}
           </div>
         </div>
       </div>
