@@ -289,6 +289,11 @@ class OutboundMessageSerializer(serializers.ModelSerializer):
     recipientPhoneNumber = serializers.CharField(source="recipient_phone_number")
     messageType = serializers.ChoiceField(source="message_type", choices=OutboundMessageType.choices)
     providerMessageId = serializers.CharField(source="provider_message_id")
+    providerStatus = serializers.ReadOnlyField(source="initial_provider_status")
+    providerStatusCode = serializers.ReadOnlyField(source="initial_provider_status_code")
+    providerMessage = serializers.ReadOnlyField(source="initial_provider_message")
+    deliveryStatus = serializers.ReadOnlyField(source="delivery_status")
+    deliveryStatusCode = serializers.ReadOnlyField(source="delivery_status_code")
     dedupeKey = serializers.CharField(source="dedupe_key")
     scheduledFor = serializers.DateTimeField(source="scheduled_for", read_only=True)
     sentAt = serializers.DateTimeField(source="sent_at", read_only=True)
@@ -310,6 +315,11 @@ class OutboundMessageSerializer(serializers.ModelSerializer):
             "status",
             "provider",
             "providerMessageId",
+            "providerStatus",
+            "providerStatusCode",
+            "providerMessage",
+            "deliveryStatus",
+            "deliveryStatusCode",
             "dedupeKey",
             "metadata",
             "scheduledFor",

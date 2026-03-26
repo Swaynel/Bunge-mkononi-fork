@@ -161,6 +161,8 @@ def _serialize_sms_delivery_log(log: SystemLog) -> dict:
         "phoneNumber": metadata.get("phoneNumber") or "",
         "rawPhoneNumber": metadata.get("rawPhoneNumber") or "",
         "status": status,
+        "statusCode": metadata.get("statusCode") or "",
+        "failureReason": metadata.get("failureReason") or "",
         "cost": metadata.get("cost") or "",
         "network": metadata.get("network") or "",
         "billId": metadata.get("billId"),
@@ -180,6 +182,11 @@ def _serialize_outbound_message(message: OutboundMessage) -> dict:
         "status": message.status,
         "provider": message.provider,
         "providerMessageId": message.provider_message_id,
+        "providerStatus": message.initial_provider_status,
+        "providerStatusCode": message.initial_provider_status_code,
+        "providerMessage": message.initial_provider_message,
+        "deliveryStatus": message.delivery_status,
+        "deliveryStatusCode": message.delivery_status_code,
         "dedupeKey": message.dedupe_key,
         "attemptCount": message.attempt_count,
         "scheduledFor": message.scheduled_for.isoformat() if message.scheduled_for else None,
@@ -897,7 +904,7 @@ class OutboundMessageViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = OutboundMessageSerializer
     permission_classes = [permissions.IsAdminUser]
     queryset: QuerySet[OutboundMessage] = OutboundMessage.objects.select_related("bill", "subscription")
-    search_fields = ["recipient_phone_number", "message", "message_type", "provider_message_id", "dedupe_key"]
+    search_fields = ["recipient_phone_number", "message", "message_type", "provider_message_id", "dedupe_key", "last_error"]
 
     def get_queryset(self) -> QuerySet[OutboundMessage]:  # pyright: ignore[reportIncompatibleMethodOverride]
         request = cast(Request, self.request)
@@ -1091,8 +1098,10 @@ class AdminMetricsAPIView(APIView):
                         "total": outbound_queryset.count(),
                         "queued": outbound_status_counts.get(OutboundMessageStatus.QUEUED, 0),
                         "sending": outbound_status_counts.get(OutboundMessageStatus.SENDING, 0),
+                        "accepted": outbound_status_counts.get(OutboundMessageStatus.ACCEPTED, 0),
                         "sent": outbound_status_counts.get(OutboundMessageStatus.SENT, 0),
                         "failed": outbound_status_counts.get(OutboundMessageStatus.FAILED, 0),
+                        "undelivered": outbound_status_counts.get(OutboundMessageStatus.UNDELIVERED, 0),
                         "skipped": outbound_status_counts.get(OutboundMessageStatus.SKIPPED, 0),
                         "byType": dict(outbound_type_counts),
                         "digestQueue": outbound_type_counts.get(OutboundMessageType.DIGEST, 0),

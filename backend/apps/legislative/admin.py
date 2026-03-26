@@ -79,10 +79,38 @@ class SubscriptionAdmin(admin.ModelAdmin):
 
 @admin.register(OutboundMessage)
 class OutboundMessageAdmin(admin.ModelAdmin):
-    list_display = ("recipient_phone_number", "message_type", "status", "language", "provider_message_id", "scheduled_for", "created_at")
+    list_display = (
+        "recipient_phone_number",
+        "message_type",
+        "status",
+        "provider_status",
+        "provider_status_code",
+        "delivery_status",
+        "language",
+        "provider_message_id",
+        "failure_reason",
+        "scheduled_for",
+        "created_at",
+    )
     list_filter = ("message_type", "status", "language", "provider", "created_at")
-    search_fields = ("recipient_phone_number", "message", "provider_message_id", "dedupe_key")
+    search_fields = ("recipient_phone_number", "message", "provider_message_id", "dedupe_key", "last_error")
     ordering = ("-created_at",)
+
+    @admin.display(description="Provider status")
+    def provider_status(self, obj: OutboundMessage) -> str:
+        return obj.initial_provider_status or "-"
+
+    @admin.display(description="Provider code")
+    def provider_status_code(self, obj: OutboundMessage) -> str:
+        return obj.initial_provider_status_code or "-"
+
+    @admin.display(description="Delivery status")
+    def delivery_status(self, obj: OutboundMessage) -> str:
+        return obj.delivery_status or "-"
+
+    @admin.display(description="Failure reason")
+    def failure_reason(self, obj: OutboundMessage) -> str:
+        return obj.last_error or "-"
 
 
 @admin.register(WebhookReceipt)

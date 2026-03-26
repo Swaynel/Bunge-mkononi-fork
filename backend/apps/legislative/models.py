@@ -113,8 +113,10 @@ class SubscriptionSource(models.TextChoices):
 class OutboundMessageStatus(models.TextChoices):
     QUEUED = "queued", "Queued"
     SENDING = "sending", "Sending"
+    ACCEPTED = "accepted", "Accepted"
     SENT = "sent", "Sent"
     FAILED = "failed", "Failed"
+    UNDELIVERED = "undelivered", "Undelivered"
     SKIPPED = "skipped", "Skipped"
 
 
@@ -363,6 +365,36 @@ class OutboundMessage(models.Model):
 
     def __str__(self) -> str:
         return f"{self.message_type}: {self.recipient_phone_number}"
+
+    @property
+    def initial_provider_status(self) -> str:
+        if isinstance(self.metadata, dict):
+            return str(self.metadata.get("providerStatus") or "")
+        return ""
+
+    @property
+    def initial_provider_status_code(self) -> str:
+        if isinstance(self.metadata, dict):
+            return str(self.metadata.get("providerStatusCode") or "")
+        return ""
+
+    @property
+    def initial_provider_message(self) -> str:
+        if isinstance(self.metadata, dict):
+            return str(self.metadata.get("providerMessage") or "")
+        return ""
+
+    @property
+    def delivery_status(self) -> str:
+        if isinstance(self.metadata, dict):
+            return str(self.metadata.get("deliveryStatus") or "")
+        return ""
+
+    @property
+    def delivery_status_code(self) -> str:
+        if isinstance(self.metadata, dict):
+            return str(self.metadata.get("deliveryStatusCode") or "")
+        return ""
 
 
 class WebhookReceipt(models.Model):

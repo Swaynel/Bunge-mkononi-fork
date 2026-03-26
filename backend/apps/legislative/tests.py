@@ -5,6 +5,7 @@ from unittest.mock import patch
 from typing import Any, Protocol, cast
 
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIRequestFactory
 
 from apps.legislative.representative_scrapers import (
@@ -17,13 +18,17 @@ from apps.legislative.representative_scrapers import (
 from .models import (
     Bill,
     BillStatus,
+    LogEventType,
     MessageLanguage,
+    OutboundMessage,
+    OutboundMessageStatus,
     Representative,
     RepresentativeVote,
     Subscription,
     SubscriptionFrequency,
     SubscriptionScope,
     SubscriptionStatus,
+    SystemLog,
     VoteChoice,
 )
 from .services import process_bill_document
@@ -37,7 +42,13 @@ from .views import (
     UssdCallbackAPIView,
 )
 from .scrapers import upsert_bills
-from .services import create_subscription, update_bill_status
+from .services import (
+    create_subscription,
+    dispatch_outbound_message,
+    queue_outbound_message,
+    record_sms_delivery_report,
+    update_bill_status,
+)
 
 
 class SupportsCommitCallbacks(Protocol):
@@ -606,3 +617,177 @@ class SmsWebhookTests(TestCase):
         self.assertEqual(first_response.status_code, 200)
         self.assertEqual(first_response.content, second_response.content)
         self.assertIn("Bill ID: sms-bill", first_response.content.decode())
+
+
+class OutboundMessageDispatchTests(TestCase):
+    def setUp(self):
+        self.bill = Bill.objects.create(
+            id="dispatch-bill",
+            title="Dispatch Bill",
+            summary="A bill used to test outbound message state handling.",
+            status=BillStatus.FIRST_READING,
+            category="Finance",
+            date_introduced=date(2026, 4, 2),
+            is_hot=False,
+        )
+
+    def _queue_message(self) -> OutboundMessage:
+        return queue_outbound_message(
+            recipient_phone_number="+254700000000",
+            message="Dispatch test message",
+            message_type="broadcast",
+            language=MessageLanguage.EN,
+            bill=self.bill,
+            dedupe_parts=[self.bill.pk, timezone.now().isoformat()],
+            send_immediately=False,
+        )
+
+    def test_dispatch_persists_provider_acceptance_details(self):
+        outbound = self._queue_message()
+        response = {
+            "SMSMessageData": {
+                "Message": "Sent to 1/1 Total Cost: KES 0.8000",
+                "Recipients": [
+                    {
+                        "number": outbound.recipient_phone_number,
+                        "messageId": "ATPid-accepted",
+                        "status": "Success",
+                        "statusCode": 101,
+                        "cost": "KES 0.8000",
+                    }
+                ],
+            }
+        }
+
+        with patch("apps.legislative.services.send_sms", return_value=response):
+            dispatch_outbound_message(outbound.pk)
+
+        outbound.refresh_from_db()
+        self.assertEqual(outbound.status, OutboundMessageStatus.ACCEPTED)
+        self.assertEqual(outbound.provider_message_id, "ATPid-accepted")
+        self.assertEqual(outbound.initial_provider_status, "Success")
+        self.assertEqual(outbound.initial_provider_status_code, "101")
+        self.assertEqual(outbound.initial_provider_message, "Sent to 1/1 Total Cost: KES 0.8000")
+        self.assertEqual(outbound.last_error, "")
+
+        log = SystemLog.objects.filter(event_type=LogEventType.MESSAGE_OUTBOUND).order_by("-created_at").first()
+        self.assertIsNotNone(log)
+        self.assertIn("accepted", str(log.message).lower())
+        self.assertEqual(log.metadata.get("providerStatus"), "Success")
+        self.assertEqual(log.metadata.get("providerStatusCode"), "101")
+
+    def test_dispatch_surfaces_provider_rejection_reason(self):
+        outbound = self._queue_message()
+        response = {
+            "SMSMessageData": {
+                "Message": "Rejected by gateway",
+                "Recipients": [
+                    {
+                        "number": outbound.recipient_phone_number,
+                        "messageId": "",
+                        "status": "Rejected by gateway",
+                        "statusCode": 406,
+                        "cost": "KES 0.0000",
+                    }
+                ],
+            }
+        }
+
+        with patch("apps.legislative.services.send_sms", return_value=response):
+            dispatch_outbound_message(outbound.pk)
+
+        outbound.refresh_from_db()
+        self.assertEqual(outbound.status, OutboundMessageStatus.FAILED)
+        self.assertEqual(outbound.initial_provider_status, "Rejected by gateway")
+        self.assertEqual(outbound.initial_provider_status_code, "406")
+        self.assertIn("Rejected by gateway", outbound.last_error)
+        self.assertIn("406", outbound.last_error)
+
+        log = SystemLog.objects.filter(event_type=LogEventType.MESSAGE_OUTBOUND).order_by("-created_at").first()
+        self.assertIsNotNone(log)
+        self.assertIn("rejected", str(log.message).lower())
+        self.assertEqual(log.metadata.get("error"), outbound.last_error)
+
+    def test_delivery_report_keeps_sent_pending_until_final_delivery(self):
+        outbound = self._queue_message()
+        response = {
+            "SMSMessageData": {
+                "Message": "Sent to 1/1 Total Cost: KES 0.8000",
+                "Recipients": [
+                    {
+                        "number": outbound.recipient_phone_number,
+                        "messageId": "ATPid-pending",
+                        "status": "Success",
+                        "statusCode": 101,
+                        "cost": "KES 0.8000",
+                    }
+                ],
+            }
+        }
+
+        with patch("apps.legislative.services.send_sms", return_value=response):
+            dispatch_outbound_message(outbound.pk)
+
+        record_sms_delivery_report(
+            {
+                "messageId": "ATPid-pending",
+                "phoneNumber": outbound.recipient_phone_number,
+                "status": "Sent",
+                "statusCode": "102",
+            }
+        )
+        outbound.refresh_from_db()
+        self.assertEqual(outbound.status, OutboundMessageStatus.ACCEPTED)
+        self.assertEqual(outbound.delivery_status, "Sent")
+        self.assertEqual(outbound.delivery_status_code, "102")
+
+        record_sms_delivery_report(
+            {
+                "messageId": "ATPid-pending",
+                "phoneNumber": outbound.recipient_phone_number,
+                "status": "Delivered",
+                "statusCode": "103",
+            }
+        )
+        outbound.refresh_from_db()
+        self.assertEqual(outbound.status, OutboundMessageStatus.SENT)
+        self.assertEqual(outbound.delivery_status, "Delivered")
+        self.assertEqual(outbound.delivery_status_code, "103")
+        self.assertEqual(outbound.last_error, "")
+
+    def test_delivery_report_surfaces_exact_failure_reason(self):
+        outbound = self._queue_message()
+        response = {
+            "SMSMessageData": {
+                "Message": "Sent to 1/1 Total Cost: KES 0.8000",
+                "Recipients": [
+                    {
+                        "number": outbound.recipient_phone_number,
+                        "messageId": "ATPid-failure",
+                        "status": "Success",
+                        "statusCode": 101,
+                        "cost": "KES 0.8000",
+                    }
+                ],
+            }
+        }
+
+        with patch("apps.legislative.services.send_sms", return_value=response):
+            dispatch_outbound_message(outbound.pk)
+
+        record_sms_delivery_report(
+            {
+                "messageId": "ATPid-failure",
+                "phoneNumber": outbound.recipient_phone_number,
+                "status": "Failed",
+                "statusCode": "500",
+                "failureReason": "User in blacklist",
+            }
+        )
+
+        outbound.refresh_from_db()
+        self.assertEqual(outbound.status, OutboundMessageStatus.UNDELIVERED)
+        self.assertEqual(outbound.delivery_status, "Failed")
+        self.assertEqual(outbound.delivery_status_code, "500")
+        self.assertIn("User in blacklist", outbound.last_error)
+        self.assertIn("500", outbound.last_error)
