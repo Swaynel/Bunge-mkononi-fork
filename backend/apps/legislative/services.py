@@ -50,7 +50,7 @@ SMS_DOCUMENT_KEYWORDS = {"SUMMARY", "KEYPOINTS", "IMPACT", "TIMELINE", "DOC", "D
 SMS_VOTE_KEYWORDS = {"VOTE", "VOTES", "MP", "REP", "REPRESENTATIVE"}
 SMS_PETITION_KEYWORDS = {"PETITION", "SIGN", "SUPPORT"}
 SMS_SEARCH_KEYWORDS = {"SEARCH", "FIND", "LOOKUP"}
-SMS_DELIVERY_SUCCESS_STATUSES = {"success", "delivered", "sent"}
+SMS_DELIVERY_SUCCESS_STATUSES = {"success", "delivered"}
 SMS_DELIVERY_FAILURE_STATUSES = {"failed", "undelivered", "rejected", "expired", "expired_failed"}
 
 SMS_COMMAND_ALIASES = {
@@ -961,11 +961,36 @@ def queue_outbound_message(
     return outbound
 
 
+def _outbound_metadata_snapshot(outbound: OutboundMessage) -> dict[str, object]:
+    if isinstance(outbound.metadata, dict):
+        return dict(outbound.metadata)
+    return {}
+
+
+def _stringify_provider_value(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _compose_provider_failure_reason(*, status: str, status_code: str, message: str, fallback: str = "") -> str:
+    headline = status or message or fallback or "Africa's Talking did not accept the SMS."
+    if status_code:
+        headline = f"{headline} (status code {status_code})"
+    if message and message != status:
+        return f"{headline}: {message}"
+    return headline
+
+
 def dispatch_outbound_message(message_id: int | str) -> OutboundMessage | None:
     outbound = OutboundMessage.objects.filter(pk=message_id).select_related("bill", "subscription").first()
     if outbound is None:
         return None
-    if outbound.status == OutboundMessageStatus.SENT:
+    if outbound.status in {
+        OutboundMessageStatus.ACCEPTED,
+        OutboundMessageStatus.SENT,
+        OutboundMessageStatus.UNDELIVERED,
+    }:
         return outbound
     if outbound.scheduled_for and outbound.scheduled_for > timezone.now():
         return outbound
@@ -984,18 +1009,40 @@ def dispatch_outbound_message(message_id: int | str) -> OutboundMessage | None:
         )
         summary = summarize_sms_response(response)
         recipient_details = summary.get("recipients", []) if isinstance(summary.get("recipients", []), list) else []
-        message_id = ""
-        if recipient_details:
-            first_recipient = recipient_details[0]
-            if isinstance(first_recipient, dict):
-                message_id = str(first_recipient.get("messageId") or "").strip()
+        first_recipient = recipient_details[0] if recipient_details and isinstance(recipient_details[0], dict) else {}
+        provider_message_id = _stringify_provider_value(first_recipient.get("messageId") if isinstance(first_recipient, dict) else "")
+        provider_status = _stringify_provider_value(first_recipient.get("status") if isinstance(first_recipient, dict) else "")
+        provider_status_code = _stringify_provider_value(first_recipient.get("statusCode") if isinstance(first_recipient, dict) else "")
+        provider_message = _stringify_provider_value(summary.get("providerMessage"))
+        provider_cost = _stringify_provider_value(first_recipient.get("cost") if isinstance(first_recipient, dict) else "")
 
-        outbound.provider_message_id = message_id
-        outbound.status = OutboundMessageStatus.SENT
-        outbound.sent_at = timezone.now()
-        outbound.last_error = ""
+        metadata = _outbound_metadata_snapshot(outbound)
+        metadata.update(
+            {
+                "providerMessage": provider_message,
+                "providerStatus": provider_status,
+                "providerStatusCode": provider_status_code,
+                "providerCost": provider_cost,
+                "providerRecipients": recipient_details,
+            }
+        )
+
+        outbound.metadata = metadata
+        outbound.provider_message_id = provider_message_id
+        successful_count = int(summary.get("successfulCount") or 0)
+        accepted_by_provider = provider_status.lower() == "success" or successful_count > 0
+        failure_reason = _compose_provider_failure_reason(
+            status=provider_status,
+            status_code=provider_status_code,
+            message=provider_message,
+            fallback="Africa's Talking did not return a successful recipient status.",
+        )
+        outbound.status = OutboundMessageStatus.ACCEPTED if accepted_by_provider else OutboundMessageStatus.FAILED
+        outbound.sent_at = timezone.now() if accepted_by_provider else None
+        outbound.last_error = "" if accepted_by_provider else failure_reason
         outbound.save(
             update_fields=[
+                "metadata",
                 "provider_message_id",
                 "status",
                 "sent_at",
@@ -1004,21 +1051,35 @@ def dispatch_outbound_message(message_id: int | str) -> OutboundMessage | None:
             ]
         )
 
-        if subscription is not None:
+        if accepted_by_provider and subscription is not None:
             Subscription.objects.filter(pk=subscription.pk).update(last_notified_at=timezone.now())
 
-        record_system_log(
-            LogEventType.MESSAGE_OUTBOUND,
-            f"Sent {outbound.message_type} message to {_mask_phone_number(outbound.recipient_phone_number)}.",
-            {
-                "billId": bill.pk if bill is not None else None,
-                "subscriptionId": subscription.pk if subscription is not None else None,
-                "phoneNumber": _mask_phone_number(outbound.recipient_phone_number),
-                "messageType": outbound.message_type,
-                "providerMessageId": message_id,
-                "quantity": 1,
-            },
-        )
+        log_metadata = {
+            "billId": bill.pk if bill is not None else None,
+            "subscriptionId": subscription.pk if subscription is not None else None,
+            "phoneNumber": _mask_phone_number(outbound.recipient_phone_number),
+            "messageType": outbound.message_type,
+            "providerMessageId": provider_message_id,
+            "providerStatus": provider_status,
+            "providerStatusCode": provider_status_code,
+            "providerMessage": provider_message,
+            "quantity": 1 if accepted_by_provider else 0,
+        }
+        if accepted_by_provider:
+            record_system_log(
+                LogEventType.MESSAGE_OUTBOUND,
+                f"Africa's Talking accepted {outbound.message_type} message for {_mask_phone_number(outbound.recipient_phone_number)}.",
+                log_metadata,
+            )
+        else:
+            record_system_log(
+                LogEventType.MESSAGE_OUTBOUND,
+                f"Africa's Talking rejected {outbound.message_type} message for {_mask_phone_number(outbound.recipient_phone_number)}: {failure_reason}",
+                {
+                    **log_metadata,
+                    "error": failure_reason,
+                },
+            )
     except (AfricaTalkingConfigurationError, AfricaTalkingError) as exc:
         outbound.status = OutboundMessageStatus.FAILED
         outbound.last_error = str(exc)
@@ -1767,6 +1828,8 @@ def record_sms_delivery_report(payload: dict | None) -> dict:
     raw_phone_number = _metadata_value(payload, "phoneNumber", "to", "number", "recipient")
     phone_number = normalize_kenyan_phone_number(raw_phone_number) or raw_phone_number
     status = _metadata_value(payload, "status", "deliveryStatus", "state") or "unknown"
+    status_code = _metadata_value(payload, "statusCode", "deliveryStatusCode", "code")
+    failure_reason = _metadata_value(payload, "failureReason", "reason", "description")
     bill = resolve_bill_from_message_id(message_id)
     bill_id = bill.id if bill else ""
 
@@ -1776,6 +1839,8 @@ def record_sms_delivery_report(payload: dict | None) -> dict:
         "rawPhoneNumber": raw_phone_number,
         "status": status,
         "normalizedStatus": status.lower(),
+        "statusCode": status_code,
+        "failureReason": failure_reason,
         "cost": _metadata_value(payload, "cost", "messageCost"),
         "network": _metadata_value(payload, "network", "networkCode"),
         "billId": bill.id if bill else None,
@@ -1793,6 +1858,40 @@ def record_sms_delivery_report(payload: dict | None) -> dict:
         response_text=status,
         status=WebhookEventStatus.PROCESSED,
     )
+
+    outbound = OutboundMessage.objects.filter(provider_message_id=message_id).first()
+    if outbound is not None:
+        outbound_metadata = _outbound_metadata_snapshot(outbound)
+        outbound_metadata.update(
+            {
+                "deliveryStatus": status,
+                "deliveryStatusCode": status_code,
+                "deliveryFailureReason": failure_reason,
+                "deliveryCost": metadata["cost"],
+                "deliveryNetwork": metadata["network"],
+                "deliveryPayload": payload or {},
+            }
+        )
+        outbound.metadata = outbound_metadata
+        normalized_status = status.lower()
+        update_fields = ["metadata", "updated_at"]
+        if normalized_status in SMS_DELIVERY_SUCCESS_STATUSES:
+            outbound.status = OutboundMessageStatus.SENT
+            outbound.last_error = ""
+            update_fields.extend(["status", "last_error"])
+        elif normalized_status in SMS_DELIVERY_FAILURE_STATUSES:
+            outbound.status = OutboundMessageStatus.UNDELIVERED
+            outbound.last_error = _compose_provider_failure_reason(
+                status=status,
+                status_code=status_code,
+                message=failure_reason,
+                fallback="Africa's Talking reported the SMS as undelivered.",
+            )
+            update_fields.extend(["status", "last_error"])
+        elif outbound.status not in {OutboundMessageStatus.SENT, OutboundMessageStatus.UNDELIVERED}:
+            outbound.status = OutboundMessageStatus.ACCEPTED
+            update_fields.append("status")
+        outbound.save(update_fields=update_fields)
 
     record_system_log(
         LogEventType.SMS_DELIVERY_REPORT,

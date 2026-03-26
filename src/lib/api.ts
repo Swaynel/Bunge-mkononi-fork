@@ -14,7 +14,12 @@ import {
   RepresentativeScrapeSummary,
   RepresentativeScrapeTarget,
   ScrapeSummary,
+  SubscriptionCadence,
   SubscriptionChannel,
+  SubscriptionRecord,
+  SubscriptionScope,
+  SubscriptionStatus,
+  MessageLanguage,
   SystemLog,
 } from '@/types';
 
@@ -280,21 +285,58 @@ export async function postVote(payload: { billId: string; choice: PollChoice; ph
   });
 }
 
-export async function trackSubscription(payload: { billId?: string; phoneNumber: string; channel?: SubscriptionChannel }) {
-  return requestJson<{
-    id: number;
-    billId: string | null;
-    phoneNumber: string;
-    channel: SubscriptionChannel;
-    createdAt: string;
-    created: boolean;
-  }>('/track/', {
+export async function createSubscription(payload: {
+  billId?: string;
+  phoneNumber: string;
+  channel?: SubscriptionChannel;
+  scope?: SubscriptionScope;
+  targetValue?: string;
+  language?: MessageLanguage;
+  cadence?: SubscriptionCadence;
+  status?: SubscriptionStatus;
+}) {
+  return requestJson<SubscriptionRecord>('/track/', {
     method: 'POST',
     body: JSON.stringify({
       billId: payload.billId,
       phoneNumber: payload.phoneNumber,
       channel: payload.channel,
+      scope: payload.scope,
+      targetValue: payload.targetValue,
+      language: payload.language,
+      cadence: payload.cadence,
+      status: payload.status,
     }),
+  });
+}
+
+export async function trackSubscription(payload: { billId?: string; phoneNumber: string; channel?: SubscriptionChannel }) {
+  return createSubscription(payload);
+}
+
+export async function lookupSubscriptions(phoneNumber: string) {
+  return requestJson<{
+    phoneNumber: string;
+    count: number;
+    subscriptions: SubscriptionRecord[];
+  }>('/subscriptions/lookup/', {
+    method: 'POST',
+    body: JSON.stringify({ phoneNumber }),
+  });
+}
+
+export async function manageSubscription(
+  subscriptionId: number,
+  payload: {
+    phoneNumber: string;
+    status?: SubscriptionStatus;
+    language?: MessageLanguage;
+    cadence?: SubscriptionCadence;
+  },
+) {
+  return requestJson<SubscriptionRecord>(`/subscriptions/${subscriptionId}/manage/`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
 

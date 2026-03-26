@@ -29,8 +29,10 @@ class Command(BaseCommand):
         outbound_deleted = OutboundMessage.objects.filter(
             created_at__lt=cutoff,
             status__in=[
+                OutboundMessageStatus.ACCEPTED,
                 OutboundMessageStatus.SENT,
                 OutboundMessageStatus.FAILED,
+                OutboundMessageStatus.UNDELIVERED,
                 OutboundMessageStatus.SKIPPED,
             ],
         ).delete()[0]

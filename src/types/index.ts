@@ -10,6 +10,10 @@ export type PollChoice = 'support' | 'oppose' | 'need_more_info';
 export type VoteChoice = 'Yes' | 'No' | 'Abstain';
 export type CountySentiment = 'Support' | 'Oppose' | 'Mixed';
 export type SubscriptionChannel = 'sms' | 'ussd';
+export type SubscriptionScope = 'bill' | 'category' | 'county' | 'sponsor' | 'all';
+export type SubscriptionStatus = 'active' | 'paused' | 'unsubscribed';
+export type SubscriptionCadence = 'instant' | 'daily' | 'weekly' | 'milestone';
+export type MessageLanguage = 'en' | 'sw';
 export type RepresentativeRole = 'MP' | 'MCA' | 'Senator';
 export type RepresentativeScrapeTarget = 'all' | 'MP' | 'Senator';
 export type BillDocumentStatus = 'unavailable' | 'needs_ocr' | 'ready' | 'failed';
@@ -39,6 +43,29 @@ export interface PollTally {
   yes: number;
   no: number;
   undecided: number;
+}
+
+export interface SubscriptionRecord {
+  id: number;
+  billId: string | null;
+  billTitle?: string;
+  phoneNumber: string;
+  channel: SubscriptionChannel;
+  scope: SubscriptionScope;
+  targetValue: string;
+  target: string;
+  language: MessageLanguage;
+  cadence: SubscriptionCadence;
+  status: SubscriptionStatus;
+  pauseUntil?: string | null;
+  consentSource?: 'sms' | 'ussd' | 'admin' | 'api';
+  consentedAt?: string;
+  lastNotifiedAt?: string;
+  lastDigestAt?: string;
+  createdAt: string;
+  created?: boolean;
+  reactivated?: boolean;
+  message?: string;
 }
 
 export interface Petition {

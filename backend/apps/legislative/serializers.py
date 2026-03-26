@@ -158,6 +158,24 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return obj.target_value or obj.scope
 
 
+class SubscriptionLookupSerializer(serializers.Serializer):
+    phoneNumber = serializers.CharField(source="phone_number")
+
+
+class PublicSubscriptionManageSerializer(serializers.Serializer):
+    phoneNumber = serializers.CharField(source="phone_number")
+    language = serializers.ChoiceField(choices=MessageLanguage.choices, required=False)
+    cadence = serializers.ChoiceField(choices=SubscriptionFrequency.choices, required=False)
+    status = serializers.ChoiceField(choices=SubscriptionStatus.choices, required=False)
+
+    def validate(self, attrs: dict) -> dict:
+        if not any(key in attrs for key in ("language", "cadence", "status")):
+            raise serializers.ValidationError(
+                "Provide at least one of status, language, or cadence."
+            )
+        return attrs
+
+
 class PollResponseSerializer(serializers.ModelSerializer):
     billId = serializers.PrimaryKeyRelatedField(source="bill", queryset=Bill.objects.all())
     phoneNumber = serializers.CharField(source="phone_number", required=False, allow_blank=True)
@@ -271,6 +289,11 @@ class OutboundMessageSerializer(serializers.ModelSerializer):
     recipientPhoneNumber = serializers.CharField(source="recipient_phone_number")
     messageType = serializers.ChoiceField(source="message_type", choices=OutboundMessageType.choices)
     providerMessageId = serializers.CharField(source="provider_message_id")
+    providerStatus = serializers.ReadOnlyField(source="initial_provider_status")
+    providerStatusCode = serializers.ReadOnlyField(source="initial_provider_status_code")
+    providerMessage = serializers.ReadOnlyField(source="initial_provider_message")
+    deliveryStatus = serializers.ReadOnlyField(source="delivery_status")
+    deliveryStatusCode = serializers.ReadOnlyField(source="delivery_status_code")
     dedupeKey = serializers.CharField(source="dedupe_key")
     scheduledFor = serializers.DateTimeField(source="scheduled_for", read_only=True)
     sentAt = serializers.DateTimeField(source="sent_at", read_only=True)
@@ -292,6 +315,11 @@ class OutboundMessageSerializer(serializers.ModelSerializer):
             "status",
             "provider",
             "providerMessageId",
+            "providerStatus",
+            "providerStatusCode",
+            "providerMessage",
+            "deliveryStatus",
+            "deliveryStatusCode",
             "dedupeKey",
             "metadata",
             "scheduledFor",

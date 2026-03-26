@@ -36,6 +36,7 @@ from .models import (
     SubscriptionChannel,
     SubscriptionFrequency,
     SubscriptionScope,
+    SubscriptionSource,
     SubscriptionStatus,
     SystemLog,
     WebhookEventType,
@@ -50,11 +51,13 @@ from .serializers import (
     PetitionSerializer,
     PollResponseSerializer,
     OutboundMessageSerializer,
+    PublicSubscriptionManageSerializer,
     RepresentativeSerializer,
     RepresentativeVoteNestedSerializer,
     ScrapeRepresentativesTriggerSerializer,
     ScrapeVotesTriggerSerializer,
     ScrapeTriggerSerializer,
+    SubscriptionLookupSerializer,
     SubscriptionSerializer,
     SystemLogSerializer,
     WebhookReceiptSerializer,
@@ -81,6 +84,7 @@ from .services import (
     _subscription_status_message,
     _resolve_bill_from_reference,
     _resolve_subscription_reference,
+    _subscription_action_log,
     _update_subscription_state,
     broadcast_bill_update,
     dispatch_pending_outbound_messages,
@@ -157,6 +161,8 @@ def _serialize_sms_delivery_log(log: SystemLog) -> dict:
         "phoneNumber": metadata.get("phoneNumber") or "",
         "rawPhoneNumber": metadata.get("rawPhoneNumber") or "",
         "status": status,
+        "statusCode": metadata.get("statusCode") or "",
+        "failureReason": metadata.get("failureReason") or "",
         "cost": metadata.get("cost") or "",
         "network": metadata.get("network") or "",
         "billId": metadata.get("billId"),
@@ -176,6 +182,11 @@ def _serialize_outbound_message(message: OutboundMessage) -> dict:
         "status": message.status,
         "provider": message.provider,
         "providerMessageId": message.provider_message_id,
+        "providerStatus": message.initial_provider_status,
+        "providerStatusCode": message.initial_provider_status_code,
+        "providerMessage": message.initial_provider_message,
+        "deliveryStatus": message.delivery_status,
+        "deliveryStatusCode": message.delivery_status_code,
         "dedupeKey": message.dedupe_key,
         "attemptCount": message.attempt_count,
         "scheduledFor": message.scheduled_for.isoformat() if message.scheduled_for else None,
@@ -734,7 +745,7 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
     search_fields = ["phone_number", "channel"]
 
     def get_permissions(self):
-        if self.action == "create":
+        if self.action in {"create", "lookup", "manage"}:
             return [permissions.AllowAny()]
         return [permissions.IsAdminUser()]
 
@@ -771,6 +782,83 @@ class SubscriptionViewSet(viewsets.ModelViewSet):
         response_data["created"] = created
         response_data["reactivated"] = reactivated
         return Response(response_data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    @action(detail=False, methods=["post"])
+    def lookup(self, request):
+        serializer = SubscriptionLookupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated_data = cast(dict[str, object], serializer.validated_data or {})
+        raw_phone_number = str(validated_data["phone_number"])
+        phone_number = normalize_kenyan_phone_number(raw_phone_number) or raw_phone_number.strip()
+
+        subscriptions = list(
+            self.queryset.filter(phone_number=phone_number)
+            .exclude(status=SubscriptionStatus.UNSUBSCRIBED)
+            .order_by("-created_at")
+        )
+
+        return Response(
+            {
+                "phoneNumber": phone_number,
+                "count": len(subscriptions),
+                "subscriptions": SubscriptionSerializer(subscriptions, many=True).data,
+            }
+        )
+
+    @action(detail=True, methods=["post"])
+    def manage(self, request, pk=None):
+        serializer = PublicSubscriptionManageSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        validated_data = cast(dict[str, object], serializer.validated_data or {})
+
+        raw_phone_number = str(validated_data["phone_number"])
+        phone_number = normalize_kenyan_phone_number(raw_phone_number) or raw_phone_number.strip()
+        subscription = self.get_object()
+
+        if subscription.phone_number != phone_number:
+            return Response(
+                {"detail": "Phone number does not match this subscription."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        previous_status = subscription.status
+        updated = _update_subscription_state(
+            subscription,
+            status=str(validated_data["status"]) if "status" in validated_data else None,
+            language=str(validated_data["language"]) if "language" in validated_data else None,
+            cadence=str(validated_data["cadence"]) if "cadence" in validated_data else None,
+            consent_source=SubscriptionSource.API,
+        )
+
+        action_name = "update"
+        if "status" in validated_data:
+            if str(validated_data["status"]) == SubscriptionStatus.PAUSED:
+                action_name = "pause"
+            elif str(validated_data["status"]) == SubscriptionStatus.ACTIVE:
+                action_name = "resume" if previous_status == SubscriptionStatus.PAUSED else "update"
+            elif str(validated_data["status"]) == SubscriptionStatus.UNSUBSCRIBED:
+                action_name = "unsubscribe"
+        elif "language" in validated_data:
+            action_name = "language"
+
+        _subscription_action_log(
+            action_name,
+            phone_number,
+            updated,
+            {
+                "subscriptionId": updated.pk,
+                "previousStatus": previous_status,
+                "updatedFields": [
+                    field_name
+                    for field_name in ("status", "language", "cadence")
+                    if field_name in validated_data
+                ],
+            },
+        )
+
+        response_data = SubscriptionSerializer(updated).data
+        response_data["message"] = _subscription_status_message(updated)
+        return Response(response_data)
 
 
 class PollResponseViewSet(viewsets.ModelViewSet):
@@ -816,7 +904,7 @@ class OutboundMessageViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = OutboundMessageSerializer
     permission_classes = [permissions.IsAdminUser]
     queryset: QuerySet[OutboundMessage] = OutboundMessage.objects.select_related("bill", "subscription")
-    search_fields = ["recipient_phone_number", "message", "message_type", "provider_message_id", "dedupe_key"]
+    search_fields = ["recipient_phone_number", "message", "message_type", "provider_message_id", "dedupe_key", "last_error"]
 
     def get_queryset(self) -> QuerySet[OutboundMessage]:  # pyright: ignore[reportIncompatibleMethodOverride]
         request = cast(Request, self.request)
@@ -1010,8 +1098,10 @@ class AdminMetricsAPIView(APIView):
                         "total": outbound_queryset.count(),
                         "queued": outbound_status_counts.get(OutboundMessageStatus.QUEUED, 0),
                         "sending": outbound_status_counts.get(OutboundMessageStatus.SENDING, 0),
+                        "accepted": outbound_status_counts.get(OutboundMessageStatus.ACCEPTED, 0),
                         "sent": outbound_status_counts.get(OutboundMessageStatus.SENT, 0),
                         "failed": outbound_status_counts.get(OutboundMessageStatus.FAILED, 0),
+                        "undelivered": outbound_status_counts.get(OutboundMessageStatus.UNDELIVERED, 0),
                         "skipped": outbound_status_counts.get(OutboundMessageStatus.SKIPPED, 0),
                         "byType": dict(outbound_type_counts),
                         "digestQueue": outbound_type_counts.get(OutboundMessageType.DIGEST, 0),
