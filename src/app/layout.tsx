@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { Inter, JetBrains_Mono } from 'next/font/google';
+import { IBM_Plex_Serif, Inter, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 
 const inter = Inter({
@@ -10,6 +10,12 @@ const inter = Inter({
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
   variable: '--font-jetbrains-mono',
+});
+
+const ibmPlexSerif = IBM_Plex_Serif({
+  subsets: ['latin'],
+  variable: '--font-ibm-plex-serif',
+  weight: ['400', '500', '600'],
 });
 
 export const metadata: Metadata = {
@@ -27,7 +33,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full antialiased">
-      <body className={`${inter.variable} ${jetbrainsMono.variable} min-h-full text-foreground`}>
+      <body className={`${inter.variable} ${jetbrainsMono.variable} ${ibmPlexSerif.variable} min-h-full text-foreground`}>
         {children}
       </body>
     </html>

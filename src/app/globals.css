@@ -2,6 +2,7 @@
 
 :root {
   --font-site-sans: var(--font-inter), "Segoe UI", system-ui, sans-serif;
+  --font-site-serif: var(--font-ibm-plex-serif), "Georgia", serif;
   --font-site-mono: var(--font-jetbrains-mono), "SFMono-Regular", "Consolas", "Liberation Mono", monospace;
   --background: #f9fafb;
   --foreground: #0f172a;
@@ -45,6 +46,7 @@
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --font-sans: var(--font-site-sans);
+  --font-serif: var(--font-site-serif);
   --font-mono: var(--font-site-mono);
 }
 

@@ -1,7 +1,7 @@
 'use client';
 
 import { ChangeEvent, FormEvent, useState } from 'react';
-import { CheckCircle, MessageSquare, Phone, Users, Vote } from 'lucide-react';
+import { CheckCircle, MessageSquare, Phone } from 'lucide-react';
 import { postVote, trackSubscription } from '@/lib/api';
 import { PollChoice, PollTally } from '@/types';
 
@@ -165,66 +165,79 @@ export default function ParticipationHub({
   };
 
   return (
-    <div className="mt-12 space-y-6">
-      <div className="rounded-[2rem] border border-slate-200 bg-surface/95 p-5 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-soft text-brand-strong">
-              <Users size={20} />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.35em] text-slate-500">Live support</p>
-              <p
-                className={`text-3xl font-semibold tracking-tight text-foreground transition duration-300 ${
-                  isIncrementing ? 'scale-110 text-brand-strong' : 'scale-100'
-                }`}
-              >
-                {signatureCount.toLocaleString()}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex -space-x-2">
-            {[1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-surface bg-slate-200 text-[10px] font-bold text-slate-500"
-              >
-                {String.fromCharCode(64 + i)}
-              </div>
-            ))}
-            <div className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-surface bg-brand text-[10px] font-bold text-white">
-              +12
-            </div>
-          </div>
+    <div className="mt-8 space-y-8">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="surface-panel p-4 transition duration-300 hover:-translate-y-0.5 hover:shadow-(--shadow-soft)">
+          <p className="eyebrow text-slate-500">Supporters</p>
+          <p
+            className={`metric-mono mt-3 text-2xl font-semibold text-slate-900 transition duration-300 ${
+              isIncrementing ? 'scale-105 text-brand-strong' : 'scale-100'
+            }`}
+          >
+            {signatureCount.toLocaleString()}
+          </p>
+          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">Live signature count</p>
+        </div>
+        <div className="surface-panel p-4 transition duration-300 hover:-translate-y-0.5 hover:shadow-(--shadow-soft)">
+          <p className="eyebrow text-slate-500">Support</p>
+          <p className="metric-mono mt-3 text-2xl font-semibold text-slate-900">{polling.yes.toLocaleString()}</p>
+          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">Votes in favor</p>
+        </div>
+        <div className="surface-panel p-4 transition duration-300 hover:-translate-y-0.5 hover:shadow-(--shadow-soft)">
+          <p className="eyebrow text-slate-500">Oppose</p>
+          <p className="metric-mono mt-3 text-2xl font-semibold text-slate-900">{polling.no.toLocaleString()}</p>
+          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">Votes against</p>
+        </div>
+        <div className="surface-panel p-4 transition duration-300 hover:-translate-y-0.5 hover:shadow-(--shadow-soft)">
+          <p className="eyebrow text-slate-500">Need Info</p>
+          <p className="metric-mono mt-3 text-2xl font-semibold text-slate-900">{polling.undecided.toLocaleString()}</p>
+          <p className="mt-1 text-xs uppercase tracking-[0.2em] text-slate-400">Undecided responses</p>
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.92fr)]">
-        <div className="rounded-[2rem] border border-slate-200 bg-surface/95 p-6 shadow-sm">
-          <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-            <Vote className="text-brand-strong" size={18} />
-            Public opinion poll
-          </h3>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
+        <section className="surface-card p-6">
+          <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="eyebrow text-brand-strong">Public Opinion Poll</p>
+              <h3 className="font-[family:var(--font-site-serif)] text-2xl font-semibold text-slate-900">Submit A Structured Response</h3>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
+                Choose the position that best reflects your reading of the bill. Each response updates the public participation register.
+              </p>
+            </div>
+            <div className="flex -space-x-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div
+                  key={i}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-slate-200 text-[10px] font-bold text-slate-500"
+                >
+                  {String.fromCharCode(64 + i)}
+                </div>
+              ))}
+              <div className="flex h-9 w-9 items-center justify-center rounded-full border-2 border-white bg-brand text-[10px] font-bold text-white">
+                +12
+              </div>
+            </div>
+          </div>
 
-          <div className="mt-5 grid grid-cols-3 gap-3 text-center">
-            <div className="rounded-[1.25rem] bg-brand-soft p-3">
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-brand-strong">Support</p>
-              <p className="mt-1 text-lg font-semibold text-brand-strong">{polling.yes}</p>
+          <div className="mt-6 grid grid-cols-3 gap-3 text-center">
+            <div className="rounded-xl bg-brand-soft p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-brand-strong">Support</p>
+              <p className="metric-mono mt-1 text-lg font-semibold text-brand-strong">{polling.yes}</p>
             </div>
-            <div className="rounded-[1.25rem] bg-rose-50 p-3">
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-rose-700">Oppose</p>
-              <p className="mt-1 text-lg font-semibold text-rose-700">{polling.no}</p>
+            <div className="rounded-xl bg-rose-50 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-rose-700">Oppose</p>
+              <p className="metric-mono mt-1 text-lg font-semibold text-rose-700">{polling.no}</p>
             </div>
-            <div className="rounded-[1.25rem] bg-amber-50 p-3">
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-amber-700">Need info</p>
-              <p className="mt-1 text-lg font-semibold text-amber-700">{polling.undecided}</p>
+            <div className="rounded-xl bg-amber-50 p-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-amber-700">Need Info</p>
+              <p className="metric-mono mt-1 text-lg font-semibold text-amber-700">{polling.undecided}</p>
             </div>
           </div>
 
           {!hasVoted ? (
             <div className="mt-6 animate-in fade-in duration-500">
-              <p className="text-sm leading-6 text-slate-500">
+              <p className="text-sm leading-7 text-slate-600">
                 Do you support the clauses in {billTitle}? Your response helps inform the public record and the next
                 citizen action.
               </p>
@@ -235,7 +248,7 @@ export default function ParticipationHub({
                     type="button"
                     onClick={() => handleVote(option.label, option.choice)}
                     disabled={isSubmitting}
-                    className="w-full rounded-[1.25rem] border border-slate-200 bg-white px-4 py-4 text-left text-sm font-semibold text-slate-700 transition hover:border-brand/20 hover:bg-brand-soft/30 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-4 text-left text-sm font-semibold text-slate-700 transition hover:border-brand/20 hover:bg-slate-50 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isSubmitting ? 'Submitting your vote...' : option.label}
                   </button>
@@ -244,52 +257,54 @@ export default function ParticipationHub({
               {error && <p className="mt-4 text-sm text-rose-600">{error}</p>}
             </div>
           ) : (
-            <div className="mt-8 flex flex-col items-center justify-center rounded-[1.75rem] border border-brand/15 bg-brand-soft/60 px-6 py-10 text-center animate-in zoom-in duration-300">
+            <div className="mt-8 flex flex-col items-center justify-center rounded-xl border border-brand/15 bg-brand-soft/60 px-6 py-10 text-center animate-in zoom-in duration-300">
               <div className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-brand/20">
                 <CheckCircle size={40} />
               </div>
-              <h4 className="text-2xl font-semibold text-foreground">Response shared</h4>
+              <h4 className="text-2xl font-semibold text-foreground">Response Shared</h4>
               <p className="mt-2 text-sm text-slate-500">
                 You chose <span className="font-semibold text-brand-strong">{votedOption}</span>
               </p>
               <button
                 onClick={() => setHasVoted(false)}
-                className="mt-6 text-xs font-bold uppercase tracking-[0.25em] text-slate-400 underline underline-offset-4 transition hover:text-brand-strong"
+                className="mt-6 text-xs font-semibold uppercase tracking-[0.22em] text-slate-400 underline underline-offset-4 transition hover:text-brand-strong"
               >
-                Edit response
+                Edit Response
               </button>
             </div>
           )}
-        </div>
+        </section>
 
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-            <Phone className="text-brand" size={18} />
-            Offline participation
-          </h3>
-          <p className="mt-3 text-sm leading-6 text-slate-600">
-            SMS and USSD keep this bill available to people on basic phones and weaker networks.
-          </p>
+        <section className="surface-card p-6">
+          <div className="border-b border-slate-200 pb-4">
+            <h3 className="flex items-center gap-2 font-[family:var(--font-site-serif)] text-2xl font-semibold text-foreground">
+              <Phone className="text-brand" size={18} />
+              Notification Register
+            </h3>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              Register a phone number for bill alerts or use the offline public channels below for lower-bandwidth access.
+            </p>
+          </div>
 
           <div className="mt-6 space-y-3">
-            <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">USSD</p>
-              <p className="mt-2 font-mono text-lg font-semibold text-foreground">*384*16250#</p>
-              <p className="mt-2 text-xs text-slate-600">Open the menu and subscribe from any phone.</p>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">USSD</p>
+              <p className="metric-mono mt-2 text-lg font-semibold text-foreground">*384*16250#</p>
+              <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">Open the menu and subscribe from any phone</p>
             </div>
 
-            <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.3em] text-slate-500">SMS</p>
-              <p className="mt-2 font-mono text-lg font-semibold text-foreground">TRACK {billId}</p>
-              <p className="mt-2 text-xs text-slate-600">Send your number to start receiving bill updates.</p>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">SMS</p>
+              <p className="metric-mono mt-2 text-lg font-semibold text-foreground">TRACK {billId}</p>
+              <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">Send to start receiving bill updates</p>
             </div>
           </div>
 
           <form onSubmit={handleSubscriptionSubmit} className="mt-6 space-y-3">
             <label className="block text-sm font-semibold text-foreground" htmlFor={`phone-${billId}`}>
-              Subscribe with your phone number
+              Subscribe With Your Phone Number
             </label>
-            <div className="flex gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 id={`phone-${billId}`}
                 value={phoneNumber}
@@ -297,34 +312,34 @@ export default function ParticipationHub({
                 inputMode="tel"
                 autoComplete="tel"
                 placeholder="0712 345 678"
-                className="flex-1 rounded-[1.25rem] border border-slate-200 bg-white px-4 py-3 text-sm text-foreground outline-none placeholder:text-slate-400 focus:border-brand/40 focus:ring-4 focus:ring-brand/10"
+                className="flex-1 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-foreground outline-none placeholder:text-slate-400 focus:border-brand/40 focus:ring-4 focus:ring-brand/10"
               />
               <button
                 type="submit"
                 disabled={isSubscribing}
-                className="rounded-[1.25rem] bg-brand px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-xl bg-brand px-4 py-3 text-sm font-semibold text-white transition hover:bg-brand-strong disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isSubscribing ? 'Saving...' : 'Subscribe'}
               </button>
             </div>
-            <p className="text-[10px] font-medium uppercase tracking-[0.3em] text-slate-500">
+            <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-slate-500">
               By subscribing, you consent to receive bill updates via SMS.
             </p>
           </form>
 
           <div className="mt-4 min-h-[2.5rem]">
             {subscriptionMessage && (
-              <div className="inline-flex items-center gap-2 rounded-[1.25rem] bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
+              <div className="inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">
                 <CheckCircle size={16} /> {subscriptionMessage}
               </div>
             )}
             {subscriptionError && (
-              <div className="inline-flex items-center gap-2 rounded-[1.25rem] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+              <div className="inline-flex items-center gap-2 rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
                 <MessageSquare size={16} /> {subscriptionError}
               </div>
             )}
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );

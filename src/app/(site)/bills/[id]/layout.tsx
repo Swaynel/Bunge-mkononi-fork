@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { ArrowUpRight, FileText, ChevronRight } from 'lucide-react';
+import { ArrowUpRight, FileText } from 'lucide-react';
 import BillSectionNav from '@/components/bills/BillSectionNav';
+import SiteBreadcrumbs from '@/components/site/SiteBreadcrumbs';
 import { ApiError, getBill } from '@/lib/api';
 
 export const dynamic = 'force-dynamic';
@@ -44,17 +44,7 @@ export default async function BillDetailLayout({
 
   return (
     <div className="mx-auto max-w-7xl px-4 pt-8 sm:px-6">
-      <nav aria-label="Breadcrumb" className="mb-4 flex flex-wrap items-center gap-2 text-sm text-slate-500">
-        <Link href="/" className="font-medium transition hover:text-brand-strong">
-          Home
-        </Link>
-        <ChevronRight size={14} />
-        <Link href="/bills" className="font-medium transition hover:text-brand-strong">
-          Bills
-        </Link>
-        <ChevronRight size={14} />
-        <span className="max-w-md truncate text-slate-700">{bill.title}</span>
-      </nav>
+      <SiteBreadcrumbs items={[{ href: '/', label: 'Home' }, { href: '/bills', label: 'Bills' }, { label: bill.title }]} />
 
       <section className="surface-card overflow-hidden p-6">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
