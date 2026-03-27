@@ -115,7 +115,6 @@ Set these in `backend/.env` or your shell before using messaging features:
 
 - `AFRICASTALKING_USERNAME`
 - `AFRICASTALKING_API_KEY`
-- `AFRICASTALKING_SENDER_ID`
 - `AFRICASTALKING_SHORT_CODE`
 - `AFRICASTALKING_SMS_TIMEOUT`
 

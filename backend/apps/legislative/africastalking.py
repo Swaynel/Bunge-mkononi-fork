@@ -41,7 +41,14 @@ def _get_sms_service():
     return africastalking.SMS
 
 
-def send_sms(message: str, recipients: list[str], *, sender_id: str | None = None, enqueue: bool = True) -> dict[str, Any]:
+def _default_short_code(short_code: str | None = None) -> str:
+    resolved = (short_code or getattr(settings, "AFRICASTALKING_SHORT_CODE", "")).strip()
+    if not resolved:
+        raise AfricaTalkingConfigurationError("Africa's Talking shortcode is not configured.")
+    return resolved
+
+
+def send_sms(message: str, recipients: list[str], *, short_code: str | None = None, enqueue: bool = True) -> dict[str, Any]:
     recipients = [recipient.strip() for recipient in recipients if recipient and recipient.strip()]
     if not recipients:
         raise AfricaTalkingError("No SMS recipients were provided.")
@@ -52,10 +59,9 @@ def send_sms(message: str, recipients: list[str], *, sender_id: str | None = Non
     sms = _get_sms_service()
 
     try:
-        sender_id = (sender_id or getattr(settings, "AFRICASTALKING_SENDER_ID", "")).strip()
+        short_code = _default_short_code(short_code)
         send_kwargs: dict[str, Any] = {"enqueue": enqueue}
-        if sender_id:
-            send_kwargs["sender_id"] = sender_id
+        send_kwargs["sender_id"] = short_code
         response = sms.send(message, recipients, **send_kwargs)
     except Exception as exc:  # noqa: BLE001
         raise AfricaTalkingError(str(exc)) from exc
@@ -83,15 +89,7 @@ def send_sms_reply(
     link_id = str(link_id or "").strip()
 
     sms = _get_sms_service()
-    short_code = (
-        short_code
-        or getattr(settings, "AFRICASTALKING_SHORT_CODE", "")
-        or getattr(settings, "AFRICASTALKING_SENDER_ID", "")
-    ).strip()
-    if not short_code:
-        raise AfricaTalkingConfigurationError(
-            "Africa's Talking inbound replies require AFRICASTALKING_SHORT_CODE or AFRICASTALKING_SENDER_ID."
-        )
+    short_code = _default_short_code(short_code)
 
     try:
         if link_id:
